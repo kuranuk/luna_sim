@@ -1,7 +1,17 @@
-# LunarSim 実装計画 (draft v1)
+# LunarSim 実装計画 (v2)
 
-> `docs/SPEC.md` に基づく計画。**未確定事項は §9 の質問への回答待ち**。
-> 回答を反映して v2 に更新してから Phase 1 に着手する。
+> `docs/SPEC.md` に基づく計画。v1 への回答（§9）を反映済み。
+
+## 確定事項（v2）
+
+- **Open3D は使わない**（wheel 約 400 MB + dash/flask 等の不要依存のため）。
+- Q1: レイキャストは `core/raycast/` の抽象層を残し、標準は**自前の高さマップレイキャスタ**（max-mipmap DDA、numba があれば JIT、なければ numpy）。
+  将来メッシュ系バックエンド（例: 軽量な Embree バインディング）を足せる口だけ残す。
+- Q2: **岩石はすべて高さマップに加算**する（メッシュ化しない）。張り出し形状は表現しない。
+- Q3: **未回答**。Phase 1〜2 は単一格子 + `max_cells` による上限検証で進める。2 層（近傍高解像度 + 広域低解像度）にするかは Phase 3 着手前に再確認する。
+- Q4: FastAPI 等は extras（`[server]`）に分離。閉域向けにはフル lock を配布。
+- Q5: カメラは**モノクロ**（単一帯域）。
+- 依存は CPython 3.10〜3.13 共通の 1 本の lock にする（numpy 2.2 / scipy 1.15 / numba 0.61 系）。
 
 ## 0. 前提・調査結果
 
@@ -16,8 +26,8 @@
 
 ```
 luna_sim/
-  pyproject.toml            # PEP 621, hatchling。extras: [fast] numba / [spice] / [dem] / [server] / [dev]
-  requirements.lock         # pip-compile 相当で生成（ハッシュ付き）
+  pyproject.toml            # PEP 621, setuptools。extras: [fast] numba / [spice] / [dem] / [server] / [dev]
+  requirements.in / requirements.lock   # scripts/update_lock.sh で生成（3.10〜3.13 共通）
   CLAUDE.md  README.md  LICENSES.md  Dockerfile
   docs/  SPEC.md  PLAN.md  frames.md(座標系図)  references.md(文献一覧と採用値)
   lunarsim/
@@ -37,7 +47,7 @@ luna_sim/
         labels.py           # セマンティックラベル
         mesh.py             # 高さマップ→三角形メッシュ、タイル分割、LOD
       raycast/              # レイキャストの抽象層（§3）
-        base.py  open3d_backend.py  heightfield_backend.py
+        base.py  heightfield.py   # 高さマップ max-mipmap DDA（numba 任意）
       illumination/
         sun.py              # 手動 / 簡易解析天文 / SPICE（任意）、地球方向
         shadows.py          # シャドウレイ、ホライズンマップキャッシュ、半影サンプリング
@@ -76,7 +86,6 @@ luna_sim/
 | 必須 | numpy, scipy | 配列演算、FFT、統計、補間 | BSD |
 | 必須 | pydantic>=2, pyyaml | 設定検証 | MIT |
 | 必須 | pillow | PNG(8/16bit) 入出力 | MIT-CMU (HPND) |
-| 推奨 | open3d | Embree ベース CPU レイキャスト（§9-Q1） | MIT |
 | 任意 [fast] | numba | 高さマップレイマーチ・スタンプ・ノイズの高速化。無ければ numpy 実装 | BSD |
 | 任意 [server] | fastapi, uvicorn, httpx, websockets | API / クライアント | MIT / BSD |
 | 任意 [spice] | spiceypy | 高精度太陽・地球方向（カーネル手動配置） | MIT |
@@ -91,8 +100,8 @@ luna_sim/
 
 `RayCaster` 抽象: `cast(origins[N,3], dirs[N,3], t_max) -> hit_t, normal, prim_id, material/label` と `occluded(origins, dirs, t_max) -> bool`。
 
-- **Open3D バックエンド**: 地形をタイル（例 256×256 セル）に分割し、センサ位置からの距離で LOD（間引き格子 + タイル境界のスカート）を選んで `RaycastingScene` を構築。岩石メッシュ・ローバー自身も追加。ワールド全体の最高解像度メッシュは作らない（1 km² / 0.25 m で 3,200 万三角形 → BVH 込みで数 GB になるため）。
-- **高さマップ・バックエンド**（numba / numpy）: max-mipmap（四分木）上の DDA レイマーチ。メモリは高さマップ + mip のみ。2.5D 地形に対して厳密。岩石メッシュは扱えない（岩を高さマップ加算した場合のみ完全）。
+- ~~Open3D バックエンド~~（v2 で不採用）
+- **高さマップ・バックエンド（標準）**（numba / numpy）: max-mipmap（四分木）上の DDA レイマーチ。メモリは高さマップ + mip のみ。2.5D 地形に対して厳密。岩石メッシュは扱えない（岩を高さマップ加算した場合のみ完全）。
 - **長距離の太陽影**: 静的太陽方向ではホライズンマップ（方位ビンごとの地平線仰角）をキャッシュして参照、近距離は実レイで精密化。
 - テストは両バックエンドで同じ解析解（平面上の箱の影長など）を満たすことを確認。
 
@@ -146,10 +155,10 @@ luna_sim/
 ## 8. 性能見積りとリスク
 
 - 1 km² / 0.25 m = 4000² 格子: FFT 合成は数秒。クレーター数は D_min 次第で数万〜数十万 → numba で局所スタンプ（無い場合 numpy でも bbox 局所演算）。目標「数十秒」は達成見込み。
-- 640×480 影あり: 一次レイ 31 万 + シャドウレイ 31 万。Embree なら 1 秒以内見込み、高さマップ DDA（numba 4 コア）も 0.3〜1 秒程度の見込み（要計測）。numba 無しの純 numpy は目標未達の可能性大 → 報告対象。
+- 640×480 影あり: 一次レイ 31 万 + シャドウレイ 31 万。高さマップ DDA（numba 4 コア）も 0.3〜1 秒程度の見込み（要計測）。numba 無しの純 numpy は目標未達の可能性大 → 報告対象。
 - 32 ライン LiDAR（1800 列 × 32 ≈ 5.8 万レイ）0.2 秒: 見込みあり。
 - リスク: 0.05 m 解像度 × 2 km 四方（16 億セル）は単一格子では不可能。**近傍高解像度パッチ + 広域低解像度**の 2 層構成が必要（§9-Q3）。
 
 ## 9. 確認したいこと（質問）
 
-→ チャットでの質問を参照。回答を受けて本書を v2 に更新する。
+v1 の質問と回答は冒頭「確定事項（v2）」を参照。未決: Q3（広域・高解像度の扱い）。

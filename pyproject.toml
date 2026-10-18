@@ -1,0 +1,69 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "lunarsim"
+dynamic = ["version"]
+description = "Lightweight, offline, CPU-only lunar rover simulator (terrain, illumination, sensors)."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+dependencies = [
+    "numpy>=1.24",
+    "scipy>=1.10",
+    "pydantic>=2.5",
+    "pyyaml>=6.0",
+    "pillow>=10.0",
+]
+
+[project.optional-dependencies]
+fast = ["numba>=0.59"]
+spice = ["spiceypy>=6.0"]
+dem = ["tifffile>=2023.1"]
+dev = [
+    "pytest>=7.4",
+    "hypothesis>=6.80",
+    "ruff>=0.5",
+    "mypy>=1.8",
+    "types-PyYAML",
+    "pip-licenses>=4.3",
+]
+
+[project.scripts]
+lunarsim = "lunarsim.cli:main"
+
+[tool.setuptools.dynamic]
+version = { attr = "lunarsim.version.__version__" }
+
+[tool.setuptools.packages.find]
+include = ["lunarsim*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "slow: long-running statistical tests",
+    "perf: performance benchmarks (skipped unless LUNARSIM_PERF=1)",
+]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "NPY", "TID", "RUF"]
+ignore = ["RUF001", "RUF002", "RUF003"]  # allow full-width characters in Japanese comments
+
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"pickle".msg = "Do not use pickle (security: untrusted data). Use npz/json/yaml."
+"numpy.random.seed".msg = "Use a numpy Generator from lunarsim.core.rng."
+
+[tool.mypy]
+python_version = "3.10"
+plugins = ["pydantic.mypy"]
+warn_unused_configs = true
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["lunarsim.core.*", "lunarsim.config.*"]
+strict = true

@@ -1,0 +1,9 @@
+# Small, smooth terrain for unit tests and quick checks.
+name: flat_test
+seed: 0
+terrain:
+  size_x_m: 50.0
+  size_y_m: 50.0
+  resolution_m: 0.25
+  fractal:
+    enabled: false

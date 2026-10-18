@@ -1,0 +1,12 @@
+# Performance target: 1 km^2 at 0.25 m/px (4001 x 4001 cells).
+name: bench_1km
+seed: 1
+terrain:
+  size_x_m: 1000.0
+  size_y_m: 1000.0
+  resolution_m: 0.25
+  fractal:
+    hurst: 0.9
+    rms_slope_deg: 5.0
+    baseline_m: 1.0
+    rolloff_wavelength_m: 300.0

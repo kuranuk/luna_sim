@@ -1,0 +1,12 @@
+# Generic gently rolling mare-like plain (sample values, see TODO(ref) in schema).
+name: mare_plain
+seed: 42
+terrain:
+  size_x_m: 400.0
+  size_y_m: 400.0
+  resolution_m: 0.25
+  fractal:
+    hurst: 0.9
+    rms_slope_deg: 4.0
+    baseline_m: 1.0
+    rolloff_wavelength_m: 200.0

@@ -1,0 +1,18 @@
+# Representative south-polar scenario: rough terrain on a regional slope.
+# Sun/illumination settings (low sun elevation) are added in Phase 3.
+# All roughness values are sample values (TODO(ref) in schema).
+name: south_pole_slope
+seed: 7
+terrain:
+  size_x_m: 500.0
+  size_y_m: 500.0
+  resolution_m: 0.25
+  base_elevation_m: 0.0
+  fractal:
+    hurst: 0.85
+    rms_slope_deg: 8.0
+    baseline_m: 1.0
+    rolloff_wavelength_m: 250.0
+  tilt:
+    slope_deg: 6.0
+    downhill_azimuth_deg: 0.0   # descending towards North (away from the pole)
