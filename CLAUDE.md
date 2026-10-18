@@ -27,6 +27,7 @@ python scripts/demo_phase1.py               # out/phase1/ に画像
 python scripts/demo_phase2.py               # out/phase2/ にクレーター・岩石・ラベル・GT
 python scripts/demo_phase3.py               # out/phase3/ に南極・低太陽のカメラ画像
 python scripts/demo_phase4.py               # out/phase4/ に LiDAR 点群（PLY/PCD）と画像
+python scripts/demo_phase5.py               # out/phase5/ にローバー走行・ステレオ・ライト
 
 # 依存の更新（ネットあり）
 scripts/update_lock.sh                      # requirements*.in -> *.lock
@@ -94,7 +95,10 @@ fractal (`terrain/fractal`) → tilt → craters (`terrain/craters/{count,size,p
 - レイキャスト: max-mipmap 階層走査（`core/raycast/heightfield.py`）。numba（並列）/ numpy の 2 実装は同一アルゴリズム。
   2 層は `LayeredCaster`（近傍パッチの xy 範囲内は近傍層、外は遠方層）。三角形は両面判定。
 - 陰影法線 = 格子点の中心差分勾配の双一次補間（滑らか）。影は幾何（三角形）で判定。
-- 放射輝度 [W m⁻² sr⁻¹] = 太陽放射照度 × r(i,e,g)。環境光ゼロ。カメラは帯域割合 `band_fraction` を掛けて電子数へ。
+- 放射輝度はカメラ帯域内の値 [W m⁻² sr⁻¹]: 太陽 = 放射照度 × `band_fraction` × r(i,e,g)、ライト = r × I(θ)/d²。
+  太陽高度 ≤ 0 では直射光なし（曲率未考慮の接平面世界のため）。環境光ゼロ。
+- レイキャスタの注意（過去のバグ）: 1 セル内の 2 三角形は各々有効区間で判定してから最小値をとる。
+  ほぼ 0 の水平方向成分（< 1e-12）は 0 とみなす（格子線上の無限ループ防止）。
 - 乱数: カメラノイズ `sensor/camera/{name}/frame/{index:06d}`。
 
 ## LiDAR
@@ -106,6 +110,16 @@ fractal (`terrain/fractal`) → tilt → craters (`terrain/craters/{count,size,p
 - 回転式・ロゼット型 + 単純ガウスモデル（`noise.model: gaussian`）も残す（SPEC の差し替え要件）。
 - 点はその計測時刻のセンサ座標（FLU）で出力（走行中の歪みは `SensorMotion` で再現）。
 - 乱数: `sensor/lidar/{name}/frame/{index:06d}`。乱数の消費量はヒットの有無に依らず一定。
+
+## ローバー
+
+- `core/rover/`: 運動学（skid_steer: v, ω / ackermann: v, δ）、静的接地（車輪接地面 3×3 点の最高点に平面当てはめ）、
+  斜度依存すべり・横流れ、警告（slope_exceeded / tipover_risk / tipped_over / stalled）。
+- 姿勢: pitch > 0 = 機首下げ、roll > 0 = 左側が上。ローバー状態の (x, y) は接地点中心の地上軌跡、yaw は東から反時計回り。
+- センサ・ライトの取り付けは `mount`（車体 FLU 座標の xyz + rpy_deg）。カメラは mount = カメラ本体（FLU）で、
+  光学座標は `R_BODY_FROM_CAMERA` で変換。ステレオは右カメラ = 左カメラの画像 x 方向に基線長だけずらす。
+- `World.step(dt)` で時間を進める。2 層地形では近傍パッチがローバーに追従して再生成される（パッチ寸法の 1/4 以上離れたら）。
+- 乱数: ステレオ右カメラは `sensor/camera/{name}/right/frame/{index:06d}`。
 
 ## 作業の進め方
 

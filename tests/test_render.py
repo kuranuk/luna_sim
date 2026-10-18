@@ -40,7 +40,8 @@ def test_flat_lambert_radiance_and_depth() -> None:
     b = w.render_camera("c", pose).buffers
     assert np.isfinite(b.depth).all()
     np.testing.assert_allclose(b.depth, 5.0, atol=1e-9)
-    np.testing.assert_allclose(b.radiance, 1361.0 * 0.2 / math.pi, rtol=1e-12)
+    # In-band radiance: sunlight scaled by the camera band fraction (default 0.35).
+    np.testing.assert_allclose(b.radiance, 0.35 * 1361.0 * 0.2 / math.pi, rtol=1e-12)
     assert not b.shadow.any() and (b.labels == Label.PLAIN).all()
     np.testing.assert_allclose(b.normals[..., 2], 1.0)
 

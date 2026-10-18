@@ -46,13 +46,10 @@ class SensorImage:
 
 
 def electrons_per_radiance(s: CameraSensorConfig) -> float:
-    """Electrons per second per unit *total* (all-band) radiance [e- / (s · W m^-2 sr^-1)].
-
-    Includes the in-band fraction ``band_fraction`` of the solar spectrum.
-    """
+    """Electrons per second per unit in-band radiance [e- / (s · W m^-2 sr^-1)]."""
     etendue = math.pi / (4.0 * s.f_number**2) * s.pixel_pitch_m**2  # [m^2 sr]
     e_per_joule = s.quantum_efficiency * s.effective_wavelength_m / (PLANCK * C_LIGHT)
-    return etendue * s.transmission * e_per_joule * s.band_fraction
+    return etendue * s.transmission * e_per_joule
 
 
 def gain(s: CameraSensorConfig) -> float:
@@ -77,7 +74,7 @@ def expose(
     rng: np.random.Generator,
     exposure_s: float | None = None,
 ) -> SensorImage:
-    """Simulate the sensor for a radiance image [W m^-2 sr^-1] (total, all-band)."""
+    """Simulate the sensor for an in-band radiance image [W m^-2 sr^-1]."""
     t = (
         exposure_s
         if exposure_s is not None

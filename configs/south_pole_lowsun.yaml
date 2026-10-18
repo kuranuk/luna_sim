@@ -35,13 +35,31 @@ terrain:
     size_m: 100.0
     resolution_m: 0.05
 cameras:
-  - name: navcam
+  - name: navcam             # stereo pair; mount = left camera (generic sample geometry)
     intrinsics: {width: 640, height: 480, hfov_deg: 70.0}
     sensor: {auto_exposure: true, ae_percentile: 99.5, ae_target_fraction: 0.8, bits: 12}
+    mount: {x_m: 0.5, y_m: 0.15, z_m: 1.0, pitch_deg: 12.0}
+    stereo_baseline_m: 0.3
+lights:                      # two headlights (sample values, see SpotlightConfig)
+  - name: headlight_left
+    mount: {x_m: 0.6, y_m: 0.3, z_m: 0.4, pitch_deg: 15.0}
+    flux_lm: 3000.0
+  - name: headlight_right
+    mount: {x_m: 0.6, y_m: -0.3, z_m: 0.4, pitch_deg: 15.0}
+    flux_lm: 3000.0
+rover:
+  kinematics: skid_steer
+  wheels: 4
+  wheelbase_m: 1.0
+  track_m: 0.8
+  origin_height_m: 0.5
+  cg_height_m: 0.45
+  max_speed_m_s: 0.2
 lidars:
   # SPAD flash LiDAR (primary). Generic sample parameters, see LidarSpadConfig.
   - name: spad_flash
     pattern: {kind: flash, flash_width: 160, flash_height: 120, flash_hfov_deg: 60.0, flash_vfov_deg: 45.0}
+    mount: {x_m: 0.55, z_m: 0.8, pitch_deg: 10.0}
     noise:
       model: spad
       range_max_m: 100.0

@@ -42,6 +42,9 @@ _EPS_STEP = 1e-7  # [m] advance past a cell boundary
 _EPS_BARY = 1e-9  # barycentric tolerance (closes cracks along triangle edges)
 _EPS_T = 1e-6  # [m] tolerance on the segment where a leaf hit is accepted
 _EPS_Z = 1e-6  # [m] slack on height bounds (flat terrain has a zero-thickness z slab)
+# Horizontal direction components below this are treated as exactly zero: a ray running
+# (almost) along a grid line would otherwise compute ~0 cell-exit distances forever.
+_EPS_DIR = 1e-12
 
 
 @dataclass(frozen=True)
@@ -167,8 +170,8 @@ def _trace_one(
     nlev = off.shape[0]
     u0 = (ox - x0) / res
     v0 = (oy - y0) / res
-    du = dx / res
-    dv = dy / res
+    du = dx / res if abs(dx) > _EPS_DIR else 0.0
+    dv = dy / res if abs(dy) > _EPS_DIR else 0.0
     tlo = t0
     thi = t1
     # Slab clipping against the grid's bounding box (u, v in quad units, z in m).
@@ -203,7 +206,7 @@ def _trace_one(
         tc = min(tx, ty, thi)
         zlow = min(oz + dz * t, oz + dz * tc)
         if zlow > pyr[off[level] + i * lnx[level] + j] + _EPS_Z:
-            t = tc + _EPS_STEP
+            t = max(t, tc) + _EPS_STEP
             if level < nlev - 1:
                 level += 1
             continue
@@ -220,10 +223,18 @@ def _trace_one(
         z11 = z[i + 1, j + 1]
         h1 = _tri_hit(xa, ya, z00, xb, ya, z01, xb, yb, z11, ox, oy, oz, dx, dy, dz)
         h2 = _tri_hit(xa, ya, z00, xb, yb, z11, xa, yb, z10, ox, oy, oz, dx, dy, dz)
-        th = min(h1, h2)
-        if th >= t - _EPS_T and th <= tc + _EPS_T and th >= t0:
+        # Validate each triangle separately: the plane of one triangle can give a hit
+        # behind the segment that must not mask a valid hit on the other.
+        lo = max(t - _EPS_T, t0)
+        hi = tc + _EPS_T
+        th = math.inf
+        if lo <= h1 <= hi:
+            th = h1
+        if lo <= h2 <= hi and h2 < th:
+            th = h2
+        if th < math.inf:
             return th, i, j
-        t = tc + _EPS_STEP
+        t = max(t, tc) + _EPS_STEP
     return math.inf, -1, -1
 
 
@@ -310,8 +321,8 @@ def _trace_many_np(
     j_out = np.full(n, -1, dtype=np.int64)
     u0 = (o[:, 0] - x0) / res
     v0 = (o[:, 1] - y0) / res
-    du = d[:, 0] / res
-    dv = d[:, 1] / res
+    du = np.where(np.abs(d[:, 0]) > _EPS_DIR, d[:, 0] / res, 0.0)
+    dv = np.where(np.abs(d[:, 1]) > _EPS_DIR, d[:, 1] / res, 0.0)
     tlo = t0.astype(np.float64).copy()
     thi = t1.astype(np.float64).copy()
     valid = np.ones(n, dtype=bool)
@@ -356,7 +367,7 @@ def _trace_many_np(
         leaf = ~skip & (level == 0)
         new_t = t.copy()
         new_level = level.copy()
-        new_t[skip] = tc[skip] + _EPS_STEP
+        new_t[skip] = np.maximum(t[skip], tc[skip]) + _EPS_STEP
         new_level[skip] = np.minimum(level[skip] + 1, mip.levels - 1)
         new_level[descend] -= 1
         finished = np.zeros(active.size, dtype=bool)
@@ -372,9 +383,13 @@ def _trace_many_np(
             ol, dl = o[ids], d[ids]
             h1 = _tri_hit_np((xa, ya, z00), (xb, ya, z01), (xb, yb, z11), ol, dl)
             h2 = _tri_hit_np((xa, ya, z00), (xb, yb, z11), (xa, yb, z10), ol, dl)
-            th = np.minimum(h1, h2)
             tl, tcl = t[leaf], tc[leaf]
-            got = (th >= tl - _EPS_T) & (th <= tcl + _EPS_T) & (th >= t0[ids])
+            lo = np.maximum(tl - _EPS_T, t0[ids])
+            hi = tcl + _EPS_T
+            h1 = np.where((h1 >= lo) & (h1 <= hi), h1, np.inf)
+            h2 = np.where((h2 >= lo) & (h2 <= hi), h2, np.inf)
+            th = np.minimum(h1, h2)
+            got = np.isfinite(th)
             t_out[ids[got]] = th[got]
             i_out[ids[got]] = li[got]
             j_out[ids[got]] = lj[got]
@@ -382,7 +397,7 @@ def _trace_many_np(
             fin_leaf[got] = True
             finished[np.flatnonzero(leaf)[fin_leaf]] = True
             adv = np.flatnonzero(leaf)[~got]
-            new_t[adv] = tc[adv] + _EPS_STEP
+            new_t[adv] = np.maximum(t[adv], tc[adv]) + _EPS_STEP
         finished |= new_t > thi[active]
         keep = ~finished
         active, t, level = active[keep], new_t[keep], new_level[keep]

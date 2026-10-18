@@ -21,7 +21,7 @@ def terrain_shadow_mask(
     n = hm.normals().reshape(-1, 3)
     X, Y = np.meshgrid(hm.x, hm.y)
     p = np.stack([X.ravel(), Y.ravel(), hm.z.ravel()], axis=1)
-    facing = n @ sun.direction > 0.0
+    facing = (n @ sun.direction > 0.0) & (sun.elevation > 0.0)
     shadow = ~facing
     idx = np.flatnonzero(facing)
     for s in range(0, idx.size, chunk):

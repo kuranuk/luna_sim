@@ -2,23 +2,37 @@
 
 A :class:`World` is fully determined by its validated :class:`WorldConfig` (which
 includes the seed) plus the explicit state changes applied to it (sun updates,
-near-patch re-centring; rover commands in later phases).
+rover commands and time steps, light switching). The near patch of a two-layer
+terrain follows the rover automatically.
 """
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
+import numpy as np
+import numpy.typing as npt
+
 from lunarsim.config.load import load_config
-from lunarsim.config.schema import CameraConfig, LidarConfig, WorldConfig, config_hash
-from lunarsim.core.frames import Pose
+from lunarsim.config.schema import (
+    CameraConfig,
+    LidarConfig,
+    MountConfig,
+    SpotlightConfig,
+    WorldConfig,
+    config_hash,
+)
+from lunarsim.core.frames import R_BODY_FROM_CAMERA, Pose
+from lunarsim.core.illumination.lights import LightState, light_state
 from lunarsim.core.illumination.sun import SunState, sun_astronomical, sun_manual
 from lunarsim.core.raycast.heightfield import HeightfieldCaster
 from lunarsim.core.raycast.layered import LayeredCaster
 from lunarsim.core.render import RenderBuffers, render_rays
 from lunarsim.core.rng import RngFactory
+from lunarsim.core.rover import Rover, RoverStatus
 from lunarsim.core.sensors.camera import CameraModel
 from lunarsim.core.sensors.camera_noise import SensorImage, expose
 from lunarsim.core.sensors.lidar import LidarScan, SensorMotion, render_lidar
@@ -69,6 +83,10 @@ class World:
             c.name: (c, CameraModel.from_config(c.intrinsics)) for c in config.cameras
         }
         self.lidars: dict[str, LidarConfig] = {s.name: s for s in config.lidars}
+        self.lights: dict[str, SpotlightConfig] = {lt.name: lt for lt in config.lights}
+        self.light_on: dict[str, bool] = {lt.name: lt.enabled for lt in config.lights}
+        self.time_s = 0.0
+        self.rover = Rover(config.rover, self._heights)
 
     # ------------------------------------------------------------------ construction
     @classmethod
@@ -124,6 +142,20 @@ class World:
         self._two_layer.recenter(x, y)
         self._build_caster()
 
+    def _heights(
+        self, x: npt.NDArray[np.float64], y: npt.NDArray[np.float64]
+    ) -> npt.NDArray[np.float64]:
+        """Vectorised terrain height on the triangulated surface, finest layer first."""
+        xa, ya = np.asarray(x, dtype=np.float64), np.asarray(y, dtype=np.float64)
+        layers = self.layers
+        z = layers[-1].heightmap.height_at_mesh(xa, ya)
+        if len(layers) > 1:
+            near = layers[0].heightmap
+            inside = near.contains(xa, ya)
+            if inside.any():
+                z = np.where(inside, near.height_at_mesh(xa, ya), z)
+        return np.asarray(z, dtype=np.float64)
+
     def height_at(self, x: float, y: float) -> float:
         """Terrain elevation [m] on the rendered (triangulated) surface, finest layer first."""
         for layer in self.layers:
@@ -147,37 +179,128 @@ class World:
         )
         return self.sun
 
+    # ------------------------------------------------------------------ rover / time
+    def set_rover_command(self, v: float, omega: float = 0.0, steer: float = 0.0) -> None:
+        """Velocity command: v [m/s], yaw rate ω [rad/s] (skid-steer) or steer [rad]."""
+        self.rover.set_command(v, omega, steer)
+
+    def step(self, dt: float) -> RoverStatus:
+        """Advance simulation time by ``dt`` [s] (deterministic)."""
+        status = self.rover.step(dt)
+        self.time_s += dt
+        self._follow_rover()
+        return status
+
+    def _follow_rover(self) -> None:
+        """Re-centre the near patch when the rover nears its border (two-layer mode)."""
+        if self._two_layer is None:
+            return
+        nr = self.config.terrain.near
+        hm = self._two_layer.near.heightmap
+        cx = 0.5 * (hm.extent[0] + hm.extent[1])
+        cy = 0.5 * (hm.extent[2] + hm.extent[3])
+        if max(abs(self.rover.x - cx), abs(self.rover.y - cy)) > 0.25 * nr.size_m:
+            self.recenter_near(self.rover.x, self.rover.y)
+            self.rover.reset_contact()
+
+    # ------------------------------------------------------------------ mounts
+    @staticmethod
+    def mount_pose(m: MountConfig) -> Pose:
+        """``T_body_mount`` from a mount config."""
+        return Pose.from_euler_zyx(
+            math.radians(m.roll_deg),
+            math.radians(m.pitch_deg),
+            math.radians(m.yaw_deg),
+            (m.x_m, m.y_m, m.z_m),
+        )
+
+    def camera_pose(self, name: str, eye: str = "left") -> Pose:
+        """``T_world_camera`` (optical frame) of a rover-mounted camera."""
+        cfg, _ = self.cameras[name]
+        T = self.rover.pose @ self.mount_pose(cfg.mount) @ Pose(R_BODY_FROM_CAMERA, np.zeros(3))
+        if eye == "right":
+            if cfg.stereo_baseline_m is None:
+                raise ValueError(f"camera {name!r} is not a stereo pair")
+            T = T @ Pose(np.eye(3), np.array([cfg.stereo_baseline_m, 0.0, 0.0]))
+        elif eye != "left":
+            raise ValueError("eye must be 'left' or 'right'")
+        return T
+
+    def lidar_pose(self, name: str) -> Pose:
+        """``T_world_sensor`` of a rover-mounted LiDAR."""
+        return self.rover.pose @ self.mount_pose(self.lidars[name].mount)
+
+    def set_light(self, name: str, on: bool) -> None:
+        """Switch a rover light on/off."""
+        if name not in self.lights:
+            raise KeyError(name)
+        self.light_on[name] = bool(on)
+
+    def active_lights(self) -> list[LightState]:
+        """Lights that are on, placed at their rover mounts."""
+        return [
+            light_state(cfg, self.rover.pose @ self.mount_pose(cfg.mount))
+            for name, cfg in self.lights.items()
+            if self.light_on[name]
+        ]
+
     # ------------------------------------------------------------------ sensors
     def render_camera(
         self,
         name: str,
-        T_world_camera: Pose,
+        T_world_camera: Pose | None = None,
         frame_index: int = 0,
         exposure_s: float | None = None,
+        eye: str = "left",
     ) -> CameraFrame:
-        """Render camera ``name`` at pose ``T_world_camera``; noise from ``frame_index``."""
+        """Render camera ``name``; pose defaults to its rover mount (``eye`` for stereo)."""
         cfg, model = self.cameras[name]
+        pose = T_world_camera if T_world_camera is not None else self.camera_pose(name, eye)
         buffers = render_rays(
             self.layers,
             self.caster,
             self.sun,
             self.config.surface,
             model,
-            T_world_camera,
+            pose,
             self.config.render.shadow_bias_m,
+            sun_band_fraction=cfg.sensor.band_fraction,
+            lights=self.active_lights(),
         )
-        rng = self.rngs.generator(f"sensor/camera/{name}/frame/{frame_index:06d}")
+        stream = f"sensor/camera/{name}" + ("/right" if eye == "right" else "")
+        rng = self.rngs.generator(f"{stream}/frame/{frame_index:06d}")
         image = expose(buffers.radiance, cfg.sensor, rng, exposure_s)
-        return CameraFrame(name, frame_index, T_world_camera, buffers, image)
+        return CameraFrame(name, frame_index, pose, buffers, image)
+
+    def render_stereo(
+        self, name: str, frame_index: int = 0, exposure_s: float | None = None
+    ) -> tuple[CameraFrame, CameraFrame]:
+        """Left and right frames of a mounted stereo camera (independent noise).
+
+        With auto exposure the right camera reuses the left exposure time (synchronised).
+        """
+        left = self.render_camera(name, None, frame_index, exposure_s, "left")
+        right = self.render_camera(name, None, frame_index, left.image.exposure_s, "right")
+        return left, right
 
     def render_lidar(
         self,
         name: str,
-        T_world_sensor: Pose,
+        T_world_sensor: Pose | None = None,
         frame_index: int = 0,
         motion: SensorMotion | None = None,
     ) -> LidarScan:
-        """Simulate LiDAR ``name`` at pose ``T_world_sensor`` (FLU sensor frame)."""
+        """Simulate LiDAR ``name``; pose defaults to its rover mount.
+
+        For a mounted LiDAR without explicit ``motion`` the rover's current velocity is
+        used (motion distortion of spinning/rosette scans).
+        """
+        if T_world_sensor is None:
+            T_world_sensor = self.lidar_pose(name)
+            if motion is None and (self.rover.command.v != 0.0 or self.rover.status.yaw_rate):
+                lin, ang = self.rover.body_twist_world()
+                r = T_world_sensor.t - self.rover.pose.t
+                motion = SensorMotion(linear=lin + np.cross(ang, r), angular=ang)
         rng = self.rngs.generator(f"sensor/lidar/{name}/frame/{frame_index:06d}")
         return render_lidar(
             self.layers,
@@ -221,6 +344,16 @@ class World:
                 "irradiance_w_m2": self.sun.irradiance,
             },
             "raycast_backend": self.caster.backend,
+            "time_s": self.time_s,
+            "rover": {
+                "x_m": self.rover.x,
+                "y_m": self.rover.y,
+                "yaw_deg": math.degrees(self.rover.yaw),
+                "roll_deg": math.degrees(self.rover.contact.roll),
+                "pitch_deg": math.degrees(self.rover.contact.pitch),
+                "z_m": float(self.rover.pose.t[2]),
+                "warnings": list(self.rover.status.warnings),
+            },
         }
         far = self.terrain_far
         if far is not None:

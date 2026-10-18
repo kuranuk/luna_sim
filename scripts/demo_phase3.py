@@ -57,6 +57,8 @@ def main() -> None:
     t0 = time.perf_counter()
     world = World.from_yaml(args.config, seed=args.seed)
     t_world = time.perf_counter() - t0
+    for light in world.lights:  # sunlight only in this demo (lights: demo_phase5)
+        world.set_light(light, False)
     out = Path(args.out) / world.config.name
     out.mkdir(parents=True, exist_ok=True)
     cam_name = world.config.cameras[0].name

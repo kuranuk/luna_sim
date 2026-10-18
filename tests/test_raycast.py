@@ -120,3 +120,29 @@ def test_layered_caster() -> None:
     h2 = c.intersect(np.array([[0.0, 0.0, 1.0]]), dd)
     assert h2.layer[0] == 1 and h2.t[0] == pytest.approx(np.hypot(20.0, 1.0), rel=1e-9)
     assert Label.SKY == 255
+
+
+@pytest.mark.parametrize("backend", BACKENDS)
+def test_ray_along_grid_line_terminates(backend: str) -> None:
+    """Regression: a ray with a ~1e-16 horizontal component on a grid line must not hang."""
+    hm = Heightmap.centered(np.zeros((401, 401)), 0.1)
+    hm.z[180:221, 180:221] = 1.0
+    c = HeightfieldCaster(hm, backend)
+    o = np.array([[3.6739403974420599e-16, 1.0321579358544293, 2e-3]])
+    d = np.array([[-1.632402971574332e-16, -0.4586077887370983, 0.888638788321593]])
+    h = c.intersect(o, d, 0.0, 2.2466332452328337)
+    assert h.hit[0]  # blocked by the raised block
+
+
+@pytest.mark.parametrize("backend", BACKENDS)
+def test_back_plane_of_sibling_triangle_does_not_mask_hit(backend: str) -> None:
+    """Regression: within one quad, a negative-t hit on the other triangle's plane
+    must not hide the valid hit (missed shadow next to a wall)."""
+    hm = Heightmap.centered(np.zeros((401, 401)), 0.1)
+    post = (np.abs(hm.x)[None, :] <= 0.25) & (np.abs(hm.y)[:, None] <= 0.25)
+    hm.z[post] = 1.0
+    c = HeightfieldCaster(hm, backend)
+    o = np.array([[0.25937963, -0.25937963, 0.00063876]])
+    d = np.array([[0.66446302, -0.66446302, -0.34202014]])
+    h = c.intersect(o, d / np.linalg.norm(d))
+    assert h.t[0] == pytest.approx(0.00063876 / 0.34202014 * np.linalg.norm(d), rel=1e-6)

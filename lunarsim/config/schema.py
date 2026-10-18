@@ -32,11 +32,15 @@ __all__ = [
     "LidarPatternConfig",
     "LidarSpadConfig",
     "LunarLambertConfig",
+    "MountConfig",
     "NearPatchConfig",
     "ReflectanceConfig",
     "RenderConfig",
     "RockConfig",
+    "RoverConfig",
     "SiteConfig",
+    "SlipConfig",
+    "SpotlightConfig",
     "SunConfig",
     "TerrainConfig",
     "TiltConfig",
@@ -396,6 +400,22 @@ class ReflectanceConfig(_Model):
     lambert_albedo: float = Field(0.12, gt=0.0, le=1.0)
 
 
+class MountConfig(_Model):
+    """Sensor/light mounting pose ``T_body_sensor`` on the rover body (FLU frames).
+
+    For cameras the mounted frame is the camera *body* (FLU, x = viewing direction);
+    the OpenCV optical frame is derived from it. Angles: ZYX Euler, pitch positive =
+    nose down.
+    """
+
+    x_m: float = 0.0
+    y_m: float = 0.0
+    z_m: float = 0.0
+    roll_deg: float = 0.0
+    pitch_deg: float = 0.0
+    yaw_deg: float = 0.0
+
+
 class CameraIntrinsicsConfig(_Model):
     """Pinhole + Brown-Conrady (OpenCV ``k1, k2, p1, p2, k3``)."""
 
@@ -417,7 +437,8 @@ class CameraSensorConfig(_Model):
     """Radiometric sensor model. All values are generic sample values (no real device).
 
     signal [e-] = L [W m^-2 sr^-1] · (π / (4 N²)) · A_pix · τ · t_exp · QE · λ / (h c)
-    with L the in-band radiance (solar irradiance × band_fraction).
+    with L the in-band radiance (the renderer applies ``band_fraction`` to sunlight; rover
+    lights contribute their own in-band flux).
     """
 
     exposure_s: PositiveFloat = 5.0e-4
@@ -443,11 +464,18 @@ class CameraSensorConfig(_Model):
 
 
 class CameraConfig(_Model):
-    """A monochrome camera (extrinsics on the rover come in Phase 5)."""
+    """A monochrome camera, optionally a stereo pair.
+
+    With ``stereo_baseline_m`` set, ``mount`` is the *left* camera and the right camera
+    is displaced by the baseline along the left camera's image x axis (to the right),
+    with identical intrinsics and sensor (OpenCV rectified-pair convention).
+    """
 
     name: str = "cam0"
     intrinsics: CameraIntrinsicsConfig = CameraIntrinsicsConfig()
     sensor: CameraSensorConfig = CameraSensorConfig()
+    mount: MountConfig = MountConfig(x_m=0.5, z_m=1.0, pitch_deg=15.0)
+    stereo_baseline_m: PositiveFloat | None = None
 
 
 class LidarPatternConfig(_Model):
@@ -576,12 +604,86 @@ class LidarConfig(_Model):
     name: str = "lidar0"
     pattern: LidarPatternConfig = LidarPatternConfig()
     noise: LidarNoiseConfig = LidarNoiseConfig()
+    mount: MountConfig = MountConfig(x_m=0.5, z_m=0.8, pitch_deg=10.0)
 
     @model_validator(mode="after")
     def _check(self) -> LidarConfig:
         if self.noise.model == "spad" and self.pattern.kind != "flash":
             raise ValueError('noise.model "spad" requires pattern.kind "flash"')
         return self
+
+
+class SpotlightConfig(_Model):
+    """Rover spotlight (light frame FLU, beam along +x of the mount).
+
+    Radiant flux in the camera band: ``P = flux_lm / luminous_efficacy · camera_band_fraction``.
+    Angular profile: constant intensity inside ``beam_half_angle_deg``, smoothstep fall-off
+    to zero at ``field_half_angle_deg``. Irradiance falls off as 1/d² and is blocked by
+    terrain (shadow ray to the light). All defaults are generic sample values.
+    TODO(ref): luminous efficacy of radiation of the actual LED spectrum (white LEDs are
+    typically ~250-350 lm/W of radiant power) and its overlap with the camera band.
+    """
+
+    name: str = "light0"
+    enabled: bool = True
+    mount: MountConfig = MountConfig(x_m=0.6, z_m=0.9, pitch_deg=20.0)
+    flux_lm: PositiveFloat = 3000.0
+    luminous_efficacy_lm_per_w: PositiveFloat = 300.0
+    camera_band_fraction: float = Field(0.8, gt=0.0, le=1.0)
+    beam_half_angle_deg: float = Field(15.0, gt=0.0, lt=90.0)
+    field_half_angle_deg: float = Field(30.0, gt=0.0, lt=90.0)
+
+    @model_validator(mode="after")
+    def _check(self) -> SpotlightConfig:
+        if self.field_half_angle_deg <= self.beam_half_angle_deg:
+            raise ValueError("field_half_angle_deg must exceed beam_half_angle_deg")
+        return self
+
+
+class SlipConfig(_Model):
+    """Simple slope-dependent slip (not terramechanics). Sample values, TODO(ref).
+
+    Longitudinal slip uphill: ``s = s_flat + (1 - s_flat) (θ_up / θ_crit)^n`` (clipped to
+    [0, 1]; s = 1 means no progress); downhill: ``s = -k_down (θ_down / θ_crit)^n``
+    (skid, faster than commanded). Lateral drift on a side slope:
+    ``v_y = -k_lat · |v| · sin(roll)`` (towards the downhill side).
+    """
+
+    slip_flat: float = Field(0.02, ge=0.0, lt=1.0)
+    critical_slope_deg: float = Field(25.0, gt=0.0, lt=90.0)
+    exponent: PositiveFloat = 2.0
+    downhill_skid: float = Field(0.05, ge=0.0, le=1.0)
+    lateral_coefficient: float = Field(0.3, ge=0.0)
+
+
+class RoverConfig(_Model):
+    """Generic rover (sample dimensions; no specific vehicle).
+
+    Body frame FLU with its origin above the centre of the wheel contact points, at
+    ``origin_height_m`` along the body z axis above the contact plane.
+    """
+
+    kinematics: Literal["skid_steer", "ackermann"] = "skid_steer"
+    wheels: Literal[4, 6] = 4
+    wheelbase_m: PositiveFloat = 1.0  # front-rear axle distance
+    track_m: PositiveFloat = 0.8  # left-right wheel distance
+    wheel_radius_m: PositiveFloat = 0.15
+    wheel_width_m: PositiveFloat = 0.2
+    # Wheel-terrain contact height = max of the terrain over a 3 x 3 sample grid spanning
+    # ±contact_half_length_ratio * radius (along) and ±width/2 (across) under each wheel.
+    contact_half_length_ratio: float = Field(0.4, ge=0.0, le=1.0)
+    origin_height_m: float = Field(0.5, ge=0.0)
+    cg_height_m: PositiveFloat = 0.45  # centre of gravity above the contact plane
+    max_speed_m_s: PositiveFloat = 0.2
+    max_yaw_rate_deg_s: PositiveFloat = 20.0
+    max_steer_deg: float = Field(30.0, gt=0.0, lt=80.0)
+    max_slope_deg: float = Field(20.0, gt=0.0, lt=90.0)  # traversability warning
+    tipover_warning_margin_deg: float = Field(5.0, ge=0.0)
+    slip: SlipConfig = SlipConfig()
+    x_m: float = 0.0  # initial pose
+    y_m: float = 0.0
+    yaw_deg: float = 0.0  # from East (world +x), counter-clockwise
+    max_substep_s: PositiveFloat = 0.05
 
 
 class RenderConfig(_Model):
@@ -603,11 +705,14 @@ class WorldConfig(_Model):
     surface: ReflectanceConfig = ReflectanceConfig()
     cameras: list[CameraConfig] = [CameraConfig()]
     lidars: list[LidarConfig] = [LidarConfig()]
+    lights: list[SpotlightConfig] = []
+    rover: RoverConfig = RoverConfig()
     render: RenderConfig = RenderConfig()
 
     @model_validator(mode="after")
     def _unique_cameras(self) -> WorldConfig:
         names = [c.name for c in self.cameras] + [s.name for s in self.lidars]
+        names += [lt.name for lt in self.lights]
         if len(set(names)) != len(names):
             raise ValueError("sensor names must be unique")
         return self

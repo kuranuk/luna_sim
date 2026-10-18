@@ -39,6 +39,8 @@ def test_camera_640x480_with_shadows(backend: str) -> None:
     cfg = load_config(ROOT / "configs" / "south_pole_lowsun.yaml")
     cfg = cfg.model_copy(update={"render": cfg.render.model_copy(update={"backend": backend})})
     w = World(cfg)
+    for light in w.lights:
+        w.set_light(light, False)
     pose = camera_pose_from_body(
         [0, 0, w.height_at(0, 0) + 1.5], pitch=math.radians(8), yaw=math.radians(90 - 139)
     )

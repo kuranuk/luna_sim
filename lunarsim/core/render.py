@@ -18,6 +18,7 @@ import numpy.typing as npt
 from lunarsim.config.schema import ReflectanceConfig
 from lunarsim.core.frames import Pose
 from lunarsim.core.illumination.brdf import reflectance
+from lunarsim.core.illumination.lights import LightState
 from lunarsim.core.illumination.sun import SunState
 from lunarsim.core.raycast.heightfield import RayHits
 from lunarsim.core.sensors.camera import CameraModel
@@ -123,12 +124,13 @@ class RenderBuffers:
     """Per-pixel outputs (images of shape ``(H, W)`` unless noted).
 
     Attributes:
-        radiance: Total-band radiance [W m^-2 sr^-1] (0 for sky / shadow).
+        radiance: In-band radiance [W m^-2 sr^-1] (sun + lights; 0 for sky).
         depth: Z in the camera frame [m] (``inf`` for sky).
         range_m: Distance along the ray [m] (``inf`` for sky).
         normals: World ENU shading normals, ``(H, W, 3)`` (0 for sky).
         labels: Terrain labels (``Label.SKY`` for sky).
-        shadow: True where the visible surface receives no direct sunlight.
+        shadow: True where the visible surface receives no direct sunlight
+            (rover lights do not change this mask).
         layer: Terrain layer index hit (-1 for sky).
         points: World hit points ``(H, W, 3)`` [m] (nan for sky).
     """
@@ -143,6 +145,32 @@ class RenderBuffers:
     points: FloatArray
 
 
+def _light_radiance(
+    light: LightState,
+    caster: Caster,
+    surface: ReflectanceConfig,
+    surf: SurfaceSample,
+    to_viewer: FloatArray,
+    bias: float,
+) -> FloatArray:
+    """In-band radiance [W m^-2 sr^-1] reflected from one spotlight."""
+    vec = light.position - surf.points
+    dist = np.linalg.norm(vec, axis=1)
+    to_light = vec / np.maximum(dist, 1e-9)[:, None]
+    intensity = light.intensity_towards(-to_light)
+    mu0 = np.einsum("ij,ij->i", surf.normals, to_light)
+    out = np.zeros(surf.points.shape[0])
+    idx = np.flatnonzero((intensity > 0.0) & (mu0 > 0.0))
+    if idx.size == 0:
+        return out
+    o = surf.points[idx] + bias * surf.normals[idx]
+    blocked = caster.occluded(o, to_light[idx], np.maximum(dist[idx] - 2.0 * bias, 0.0))
+    idx = idx[~blocked]
+    r = reflectance(surface, surf.normals[idx], to_light[idx], to_viewer[idx])
+    out[idx] = r * intensity[idx] / dist[idx] ** 2
+    return out
+
+
 def render_rays(
     layers: Sequence[Terrain],
     caster: Caster,
@@ -151,8 +179,14 @@ def render_rays(
     camera: CameraModel,
     T_world_camera: Pose,
     shadow_bias_m: float,
+    sun_band_fraction: float = 1.0,
+    lights: Sequence[LightState] = (),
 ) -> RenderBuffers:
-    """Render the radiance and ground-truth buffers of one camera view."""
+    """Render the in-band radiance and ground-truth buffers of one camera view.
+
+    Sunlight is scaled by ``sun_band_fraction`` (fraction of the solar irradiance in the
+    camera band); each light adds ``r(i, e, g) · I(θ) / d²`` where visible from the light.
+    """
     h, w = camera.height, camera.width
     rays_cam = camera.pixel_rays()
     d = T_world_camera.rotate(rays_cam)
@@ -174,7 +208,9 @@ def render_rays(
     if m.any():
         s = np.broadcast_to(sun.direction, surf.normals.shape)
         mu0 = surf.normals @ sun.direction
-        facing = (mu0 > 0.0) & (sun.elevation > -0.5 * np.pi)
+        # No direct sunlight with the sun below the local horizon plane (the tangent-plane
+        # world has no curvature; distant lower terrain is not modelled).
+        facing = (mu0 > 0.0) & (sun.elevation > 0.0)
         lit = facing.copy()
         idx = np.flatnonzero(facing)
         if idx.size:
@@ -183,7 +219,9 @@ def render_rays(
             lit[idx[blocked]] = False
         v = -d[m]
         r = reflectance(surface, surf.normals, s, v)
-        rad = np.where(lit, r * sun.irradiance, 0.0)
+        rad = np.where(lit, r * sun.irradiance * sun_band_fraction, 0.0)
+        for light in lights:
+            rad += _light_radiance(light, caster, surface, surf, v, shadow_bias_m)
         radiance[m] = rad
         shadow[m] = ~lit
 
