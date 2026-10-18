@@ -2,7 +2,9 @@
 
 from lunarsim.config.load import load_config, parse_config
 from lunarsim.config.schema import (
+    CraterConfig,
     FractalConfig,
+    RockConfig,
     TerrainConfig,
     TiltConfig,
     WorldConfig,
@@ -10,7 +12,9 @@ from lunarsim.config.schema import (
 )
 
 __all__ = [
+    "CraterConfig",
     "FractalConfig",
+    "RockConfig",
     "TerrainConfig",
     "TiltConfig",
     "WorldConfig",

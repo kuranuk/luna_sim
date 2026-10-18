@@ -24,6 +24,7 @@ mypy lunarsim                               # core/config は strict
 # 実行
 lunarsim gen-world configs/mare_plain.yaml --seed 1 --out out/world
 python scripts/demo_phase1.py               # out/phase1/ に画像
+python scripts/demo_phase2.py               # out/phase2/ にクレーター・岩石・ラベル・GT
 
 # 依存の更新（ネットあり）
 scripts/update_lock.sh                      # requirements*.in -> *.lock
@@ -72,6 +73,12 @@ R_BODY_FROM_CAMERA: x_cam -> -y_body, y_cam -> -z_body, z_cam -> +x_body
 - 依存追加は寛容ライセンス（MIT/BSD/Apache-2.0 等）のみ。Open3D は使わない（wheel 約 400 MB のため）。
   レイキャストは `core/raycast/` の抽象 + 自前の高さマップレイキャスタ（numba 任意）。
 - 再現性: 同じ seed + 設定 + `requirements.lock` のバージョンでビット一致。スレッド数で結果を変えない。
+
+## 地形生成の順序と乱数ストリーム
+
+fractal (`terrain/fractal`) → tilt → craters (`terrain/craters/{count,size,position,cluster,degradation}`)
+→ rocks (`terrain/rocks/{background,ejecta}`)。クレーターは劣化度 g が大きい（古い）順に刻印し、
+新しいクレーターが内部を上書きする。岩石は高さマップに半楕円体として加算（Q2）。
 
 ## 作業の進め方
 

@@ -17,5 +17,9 @@ def test_terrain_1km_quarter_metre() -> None:
     t0 = time.perf_counter()
     w = World.from_yaml(ROOT / "configs" / "bench_1km.yaml")
     dt = time.perf_counter() - t0
-    print(f"\n1 km^2 @ 0.25 m ({w.heightmap.shape}): {dt:.2f} s")
+    md = w.metadata()
+    print(
+        f"\n1 km^2 @ 0.25 m {w.heightmap.shape}, {md['num_craters']} craters, "
+        f"{md['num_rocks']} rocks: {dt:.2f} s"
+    )
     assert dt < 60.0

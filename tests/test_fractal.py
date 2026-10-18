@@ -65,7 +65,7 @@ def test_tilt() -> None:
         fractal={"enabled": False},
         tilt={"slope_deg": 10.0, "downhill_azimuth_deg": 90.0},
     )
-    hm = build_terrain(cfg, RngFactory(0))
+    hm = build_terrain(cfg, RngFactory(0)).heightmap
     np.testing.assert_allclose(hm.slope(), np.deg2rad(10.0), atol=1e-12)
     np.testing.assert_allclose(hm.aspect(), np.pi / 2, atol=1e-12)  # descends to the East
     assert hm.height_at(0.0, 0.0) == pytest.approx(100.0)

@@ -1,0 +1,29 @@
+# Mare-like plain with an equilibrium crater population and rocks.
+# Sample/literature values: see lunarsim/config/schema.py and docs/references.md.
+name: crater_field
+seed: 11
+terrain:
+  size_x_m: 400.0
+  size_y_m: 400.0
+  resolution_m: 0.25
+  fractal:
+    hurst: 0.9
+    rms_slope_deg: 3.0
+    baseline_m: 1.0
+    rolloff_wavelength_m: 200.0
+  craters:
+    enabled: true
+    sfd:
+      mode: equilibrium
+      equilibrium_fraction: 0.02
+      d_min_m: 1.0
+      d_max_m: 120.0
+  rocks:
+    enabled: true
+    k: 0.02
+    d_min_m: 0.5
+    d_max_m: 5.0
+    ejecta:
+      enabled: true
+      k: 0.15
+      min_crater_diameter_m: 30.0

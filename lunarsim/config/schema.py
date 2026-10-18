@@ -11,12 +11,19 @@ from __future__ import annotations
 
 import hashlib
 import json
-from typing import Annotated
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 __all__ = [
+    "CraterClusteringConfig",
+    "CraterConfig",
+    "CraterDegradationConfig",
+    "CraterSFDConfig",
+    "CraterShapeConfig",
+    "EjectaRockConfig",
     "FractalConfig",
+    "RockConfig",
     "TerrainConfig",
     "TiltConfig",
     "WorldConfig",
@@ -66,6 +73,160 @@ class TiltConfig(_Model):
     downhill_azimuth_deg: float = Field(0.0, ge=0.0, lt=360.0)
 
 
+class CraterSFDConfig(_Model):
+    """Cumulative size-frequency distribution ``N(>D) = c * D^-b`` per m² (D in m).
+
+    ``mode = "equilibrium"``: ``b = 2`` and ``c = equilibrium_fraction * 1.54``.
+    1.54 D^-2 km^-2 is the geometric saturation density (D in km); with b = 2 the
+    same coefficient applies with D in m and N per m². Equilibrium densities of
+    small lunar craters are reported at ~1-10 % of geometric saturation (Gault 1970)
+    and 0.69-3.9 % (Xiao & Werner 2015, JGR Planets 120, 2277). The default 2 % lies
+    in both ranges. [Values via secondary citations; TODO(ref): check originals.]
+
+    ``mode = "power_law"``: explicit ``c`` [m^(b-2)] and ``b``, e.g. a production
+    population. The cumulative slope of the lunar production function for small
+    craters is ~3 (Neukum 1983 / Neukum et al. 2001; Oetting et al. 2023 for <=20 m).
+    """
+
+    mode: Literal["equilibrium", "power_law"] = "equilibrium"
+    equilibrium_fraction: float = Field(0.02, gt=0.0, le=1.0)
+    # Used only in power_law mode. Sample values (not calibrated to a surface age).
+    c: PositiveFloat = 0.01
+    b: float = Field(3.0, gt=0.0, le=6.0)
+    d_min_m: PositiveFloat = 1.0
+    d_max_m: PositiveFloat = 100.0
+
+    @property
+    def coefficient(self) -> float:
+        """``c`` of ``N(>D) = c D^-b`` [m^(b-2)]."""
+        return 1.54 * self.equilibrium_fraction if self.mode == "equilibrium" else self.c
+
+    @property
+    def exponent(self) -> float:
+        """``b`` of ``N(>D) = c D^-b``."""
+        return 2.0 if self.mode == "equilibrium" else self.b
+
+    @model_validator(mode="after")
+    def _check(self) -> CraterSFDConfig:
+        if self.d_max_m <= self.d_min_m:
+            raise ValueError("craters.sfd.d_max_m must be > d_min_m")
+        return self
+
+
+class CraterClusteringConfig(_Model):
+    """Optional clustering of a fraction of craters (secondary-crater-like clusters).
+
+    Neyman-Scott process: cluster centres uniform, members Gaussian around them.
+    Members of one cluster share (almost) the same age/degradation.
+    """
+
+    fraction: float = Field(0.0, ge=0.0, le=1.0)
+    mean_cluster_size: float = Field(8.0, ge=1.0)
+    sigma_m: PositiveFloat = 10.0
+
+
+class CraterShapeConfig(_Model):
+    """Simple-crater shape: parabolic bowl, rim, ejecta ∝ (r/R)^-n.
+
+    * Fresh d/D: 0.11-0.17 for fresh craters < 400 m (Stopar et al. 2017, LROC NAC
+      DTMs), mean 0.15 for the freshest class (Mahanti et al. 2018); ~0.2 for larger
+      fresh simple craters (Pike 1977). Default 0.15.
+    * Degraded d/D: ~0.05 typical of degraded small craters (Basilevsky et al. 2018,
+      Copernicus secondaries; range 0.02-0.2).
+    * Rim height h = 0.036 D for fresh simple craters (Pike 1977).
+    * Ejecta thickness ∝ (r/R)^-3 (McGetchin et al. 1973).
+    [All via secondary citations; TODO(ref): verify against the originals.]
+    """
+
+    depth_ratio_fresh: float = Field(0.15, gt=0.0, le=0.5)
+    depth_ratio_degraded: float = Field(0.05, gt=0.0, le=0.5)
+    rim_ratio_fresh: float = Field(0.036, ge=0.0, le=0.2)
+    ejecta_exponent: float = Field(3.0, gt=0.0)
+    # Outer edge of the modelled rim/ejecta, in crater radii (profile tapers to 0).
+    ejecta_extent_radii: float = Field(4.0, gt=1.2, le=10.0)
+    # Gaussian smoothing sigma (in crater radii) applied at full degradation to round
+    # the rim; depth is re-normalised afterwards so d/D stays as specified.
+    # Sample value, a qualitative stand-in for diffusive degradation.
+    smoothing_radii_degraded: float = Field(0.3, ge=0.0, le=1.0)
+
+    @model_validator(mode="after")
+    def _check(self) -> CraterShapeConfig:
+        if self.depth_ratio_degraded > self.depth_ratio_fresh:
+            raise ValueError("depth_ratio_degraded must be <= depth_ratio_fresh")
+        if self.rim_ratio_fresh >= self.depth_ratio_fresh:
+            raise ValueError("rim_ratio_fresh must be < depth_ratio_fresh")
+        return self
+
+
+class CraterDegradationConfig(_Model):
+    """Degradation state g in [0, 1] (0 = fresh, 1 = most degraded) ~ Beta(a, b).
+
+    g also orders the craters in time: larger g = older, stamped first.
+    Uniform (a = b = 1) is a neutral sample default.
+    """
+
+    beta_a: PositiveFloat = 1.0
+    beta_b: PositiveFloat = 1.0
+
+
+class CraterConfig(_Model):
+    """Stochastic crater population."""
+
+    enabled: bool = False
+    sfd: CraterSFDConfig = CraterSFDConfig()
+    clustering: CraterClusteringConfig = CraterClusteringConfig()
+    shape: CraterShapeConfig = CraterShapeConfig()
+    degradation: CraterDegradationConfig = CraterDegradationConfig()
+    # Craters smaller than this are stamped but not labelled (None -> 4 cells).
+    label_min_diameter_m: PositiveFloat | None = None
+
+
+class EjectaRockConfig(_Model):
+    """Extra rocks around fresh craters (rim / proximal ejecta)."""
+
+    enabled: bool = False
+    # Rock area fraction k at full freshness (scaled by 1 - g). Sample value.
+    k: float = Field(0.1, gt=0.0, lt=1.0)
+    # Only craters at least this large excavate blocks (regolith thickness). Sample value.
+    min_crater_diameter_m: PositiveFloat = 30.0
+    inner_radii: float = Field(0.8, ge=0.0)
+    outer_radii: float = Field(2.5, gt=0.0)
+    # Largest block D_max = coeff * D_crater^exp [m]. TODO(ref): Bart & Melosh (2010,
+    # Icarus 209, 337) relation for lunar craters; values below are placeholders to verify.
+    max_size_coeff: PositiveFloat = 0.29
+    max_size_exp: PositiveFloat = 0.66
+
+
+class RockConfig(_Model):
+    """Rocks added to the heightmap (half-ellipsoids).
+
+    Size distribution: cumulative fractional area covered by rocks of diameter >= D,
+    ``F_k(D) = k exp(-q(k) D)`` with ``q(k) = 1.79 + 0.152 / k`` (D in m;
+    Golombek & Rapp 1997, as stated in Golombek et al. 2003). Derived from Mars
+    landing sites and Earth analogues; an exponential model of the same form was
+    fitted to lunar sites by Li & Wu (2018, JGR Planets 123, doi:10.1029/2017JE005496).
+    TODO(ref): lunar-specific k (and q) values.
+    """
+
+    enabled: bool = False
+    k: float = Field(0.02, gt=0.0, lt=1.0)  # sample value
+    d_min_m: PositiveFloat = 0.5
+    d_max_m: PositiveFloat = 5.0
+    # Visible height / diameter. Sample value. TODO(ref): lunar boulder shape statistics.
+    height_ratio: float = Field(0.5, gt=0.0, le=1.5)
+    # Footprint minor/major axis ratio ~ Uniform(min, 1).
+    axis_ratio_min: float = Field(0.6, gt=0.0, le=1.0)
+    ejecta: EjectaRockConfig = EjectaRockConfig()
+
+    @model_validator(mode="after")
+    def _check(self) -> RockConfig:
+        if self.d_max_m <= self.d_min_m:
+            raise ValueError("rocks.d_max_m must be > d_min_m")
+        if self.ejecta.outer_radii <= self.ejecta.inner_radii:
+            raise ValueError("rocks.ejecta.outer_radii must be > inner_radii")
+        return self
+
+
 class TerrainConfig(_Model):
     """Regular-grid heightmap (DEM) definition."""
 
@@ -78,6 +239,8 @@ class TerrainConfig(_Model):
     max_cells: int = Field(64_000_000, gt=0)
     fractal: FractalConfig = FractalConfig()
     tilt: TiltConfig = TiltConfig()
+    craters: CraterConfig = CraterConfig()
+    rocks: RockConfig = RockConfig()
 
     @property
     def shape(self) -> tuple[int, int]:
@@ -100,6 +263,10 @@ class TerrainConfig(_Model):
                 raise ValueError("fractal.baseline_m must be >= resolution_m")
             if self.fractal.baseline_m > 0.5 * min(self.size_x_m, self.size_y_m):
                 raise ValueError("fractal.baseline_m must be <= half the terrain size")
+        if self.craters.enabled and self.craters.sfd.d_min_m < 2.0 * self.resolution_m:
+            raise ValueError("craters.sfd.d_min_m must be >= 2 * resolution_m (unresolvable)")
+        if self.rocks.enabled and self.rocks.d_min_m < 2.0 * self.resolution_m:
+            raise ValueError("rocks.d_min_m must be >= 2 * resolution_m (unresolvable)")
         return self
 
 

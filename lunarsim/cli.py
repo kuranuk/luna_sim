@@ -12,6 +12,7 @@ __all__ = ["main"]
 
 def _cmd_gen_world(args: argparse.Namespace) -> int:
     from lunarsim.core.world import World
+    from lunarsim.io.groundtruth import write_catalog, write_label_png
     from lunarsim.io.raster import save_npy, write_png16
 
     out = Path(args.out)
@@ -22,6 +23,9 @@ def _cmd_gen_world(args: argparse.Namespace) -> int:
     hm = world.heightmap
     save_npy(out / "heightmap.npy", hm.z)
     write_png16(out / "heightmap.png", hm.z, extra_meta={"resolution_m": hm.resolution})
+    write_label_png(out / "labels.png", world.terrain.labels)
+    write_catalog(out / "craters", world.terrain.craters.to_records())
+    write_catalog(out / "rocks", world.terrain.rocks.to_records())
     meta = world.metadata() | {"generation_time_s": dt}
     (out / "world.json").write_text(json.dumps(meta, indent=2))
     print(json.dumps(meta, indent=2))

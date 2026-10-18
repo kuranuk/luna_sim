@@ -10,3 +10,18 @@ terrain:
     rms_slope_deg: 5.0
     baseline_m: 1.0
     rolloff_wavelength_m: 300.0
+  craters:
+    enabled: true
+    sfd:
+      mode: equilibrium
+      equilibrium_fraction: 0.02
+      d_min_m: 1.0
+      d_max_m: 200.0
+  rocks:
+    enabled: true
+    k: 0.02
+    d_min_m: 0.5
+    d_max_m: 5.0
+    ejecta:
+      enabled: true
+      k: 0.15

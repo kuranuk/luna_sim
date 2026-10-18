@@ -11,7 +11,7 @@ from pathlib import Path
 from lunarsim.config.load import load_config
 from lunarsim.config.schema import WorldConfig, config_hash
 from lunarsim.core.rng import RngFactory
-from lunarsim.core.terrain import Heightmap, build_terrain
+from lunarsim.core.terrain import Heightmap, Terrain, build_terrain
 
 __all__ = ["World"]
 
@@ -22,7 +22,12 @@ class World:
     def __init__(self, config: WorldConfig, workers: int | None = None) -> None:
         self.config = config
         self.rngs = RngFactory(config.seed)
-        self.heightmap: Heightmap = build_terrain(config.terrain, self.rngs, workers=workers)
+        self.terrain: Terrain = build_terrain(config.terrain, self.rngs, workers=workers)
+
+    @property
+    def heightmap(self) -> Heightmap:
+        """Final terrain elevation grid."""
+        return self.terrain.heightmap
 
     @classmethod
     def from_yaml(cls, path: str | Path, seed: int | None = None) -> World:
@@ -51,4 +56,6 @@ class World:
             "resolution_m": hm.resolution,
             "extent_m": {"x_min": xmin, "x_max": xmax, "y_min": ymin, "y_max": ymax},
             "elevation_m": {"min": float(hm.z.min()), "max": float(hm.z.max())},
+            "num_craters": len(self.terrain.craters),
+            "num_rocks": len(self.terrain.rocks),
         }
