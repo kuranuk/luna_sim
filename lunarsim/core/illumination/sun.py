@@ -1,0 +1,228 @@
+"""Sun (and Earth) direction at a lunar surface site.
+
+Two modes:
+
+* **manual** – azimuth/elevation given directly (tests, controlled datasets).
+* **astronomical (simple analytic)** – from site latitude/longitude and UTC, using
+  low-precision mean elements:
+
+  - Sun apparent ecliptic longitude λ☉ and distance R (Astronomical Almanac
+    low-precision formulae, valid ~0.01° for 1950-2050).
+  - Moon mean longitude L' and mean longitude of the ascending node Ω
+    (Meeus, *Astronomical Algorithms*, 2nd ed., ch. 47).
+  - Sub-solar longitude = 180° − (L' − λ☉): the lunar prime meridian faces the
+    mean Earth direction and the rotation is uniform with L'. Advances by 360°
+    per synodic month (29.53 d).
+  - Sub-solar latitude = asin(sin I · sin(λ☉ − Ω)) with I = 1.54242° the
+    inclination of the lunar equator to the ecliptic (Cassini's laws; Meeus
+    ch. 53). Period = draconic ("eclipse") year ≈ 346.6 d.
+
+  Neglected: physical libration (~0.03°), solar parallax at the Moon (~0.15°),
+  UTC vs TT (~70 s). TODO(validation): compare against SPICE (Phase 8); expected
+  accuracy a few tenths of a degree.
+
+The sun is treated as a point source at infinity (penumbra: Phase 8).
+"""
+
+from __future__ import annotations
+
+import math
+from dataclasses import dataclass
+from datetime import datetime, timezone
+
+import numpy as np
+import numpy.typing as npt
+
+from lunarsim.core.frames import azel_to_enu, enu_to_azel
+
+__all__ = [
+    "MOON_MEAN_RADIUS_M",
+    "SOLAR_IRRADIANCE_1AU",
+    "SunState",
+    "earth_selenographic",
+    "julian_date",
+    "subsolar_point",
+    "sun_astronomical",
+    "sun_manual",
+]
+
+FloatArray = npt.NDArray[np.float64]
+
+# Total solar irradiance at 1 AU [W/m^2] (Kopp & Lean 2011, GRL 38, L01706: 1360.8 ± 0.5).
+SOLAR_IRRADIANCE_1AU = 1361.0
+# IAU mean radius of the Moon [m].
+MOON_MEAN_RADIUS_M = 1737.4e3
+AU_M = 149_597_870_700.0  # IAU 2012 [m]
+LUNAR_EQUATOR_INCLINATION_DEG = 1.54242  # to the ecliptic (Meeus ch. 53)
+
+
+@dataclass(frozen=True)
+class SunState:
+    """Illumination geometry at the site.
+
+    Attributes:
+        direction: Unit vector towards the Sun in world ENU.
+        azimuth: From North, clockwise [rad].
+        elevation: Above the local horizon [rad].
+        irradiance: Solar irradiance normal to the beam [W/m^2].
+        distance_au: Sun distance [AU].
+        earth_direction: Unit vector towards Earth in ENU (None in manual mode).
+        earth_distance_m: Distance to Earth's centre [m] (None in manual mode).
+    """
+
+    direction: FloatArray
+    azimuth: float
+    elevation: float
+    irradiance: float
+    distance_au: float
+    earth_direction: FloatArray | None = None
+    earth_distance_m: float | None = None
+
+    @property
+    def azimuth_deg(self) -> float:
+        """Azimuth [deg]."""
+        return math.degrees(self.azimuth)
+
+    @property
+    def elevation_deg(self) -> float:
+        """Elevation [deg]."""
+        return math.degrees(self.elevation)
+
+
+def sun_manual(
+    azimuth_deg: float,
+    elevation_deg: float,
+    distance_au: float = 1.0,
+    irradiance_1au: float = SOLAR_IRRADIANCE_1AU,
+) -> SunState:
+    """Sun at a given azimuth/elevation [deg]; irradiance scaled by 1/distance²."""
+    az, el = math.radians(azimuth_deg), math.radians(elevation_deg)
+    return SunState(
+        direction=azel_to_enu(az, el),
+        azimuth=az % (2 * math.pi),
+        elevation=el,
+        irradiance=irradiance_1au / distance_au**2,
+        distance_au=distance_au,
+    )
+
+
+def julian_date(utc: datetime) -> float:
+    """Julian date of a UTC datetime (naive datetimes are taken as UTC)."""
+    if utc.tzinfo is None:
+        utc = utc.replace(tzinfo=timezone.utc)
+    return 2440587.5 + utc.timestamp() / 86400.0
+
+
+def _elements(jd: float) -> dict[str, float]:
+    """Low-precision solar and lunar mean elements [deg, AU]."""
+    d = jd - 2451545.0
+    T = d / 36525.0
+    g = math.radians((357.528 + 0.9856003 * d) % 360.0)
+    lam_sun = (280.460 + 0.9856474 * d + 1.915 * math.sin(g) + 0.020 * math.sin(2 * g)) % 360.0
+    r_au = 1.00014 - 0.01671 * math.cos(g) - 0.00014 * math.cos(2 * g)
+    Lp = (218.3164477 + 481267.88123421 * T) % 360.0  # Moon mean longitude
+    D = (297.8501921 + 445267.1114034 * T) % 360.0  # mean elongation
+    M = (357.5291092 + 35999.0502909 * T) % 360.0  # Sun mean anomaly
+    Mp = (134.9633964 + 477198.8675055 * T) % 360.0  # Moon mean anomaly
+    F = (93.2720950 + 483202.0175233 * T) % 360.0  # argument of latitude
+    Om = (125.0445479 - 1934.1362891 * T) % 360.0  # ascending node
+    return {"lam_sun": lam_sun, "r_au": r_au, "Lp": Lp, "D": D, "M": M, "Mp": Mp, "F": F, "Om": Om}
+
+
+def subsolar_point(utc: datetime) -> tuple[float, float, float]:
+    """Selenographic sub-solar point ``(lat_deg, lon_deg_east, sun_distance_au)``."""
+    e = _elements(julian_date(utc))
+    lon = (180.0 - (e["Lp"] - e["lam_sun"])) % 360.0
+    if lon > 180.0:
+        lon -= 360.0
+    lat = math.degrees(
+        math.asin(
+            math.sin(math.radians(LUNAR_EQUATOR_INCLINATION_DEG))
+            * math.sin(math.radians(e["lam_sun"] - e["Om"]))
+        )
+    )
+    return lat, lon, e["r_au"]
+
+
+def earth_selenographic(utc: datetime) -> tuple[float, float, float]:
+    """Sub-Earth point ``(lat_deg, lon_deg_east, distance_m)`` (optical libration).
+
+    Truncated lunar theory (largest terms of Meeus ch. 47) and the optical
+    libration formulae of Meeus ch. 53. Accuracy ~0.1-0.3° (TODO(validation)).
+    """
+    e = _elements(julian_date(utc))
+    r = math.radians
+    D, M, Mp, F = r(e["D"]), r(e["M"]), r(e["Mp"]), r(e["F"])
+    lam = e["Lp"] + (
+        6.289 * math.sin(Mp)
+        + 1.274 * math.sin(2 * D - Mp)
+        + 0.658 * math.sin(2 * D)
+        + 0.214 * math.sin(2 * Mp)
+        - 0.186 * math.sin(M)
+    )
+    beta = (
+        5.128 * math.sin(F)
+        + 0.281 * math.sin(Mp + F)
+        + 0.278 * math.sin(Mp - F)
+        + 0.173 * math.sin(2 * D - F)
+    )
+    dist_km = 385000.56 - 20905.355 * math.cos(Mp) - 3699.111 * math.cos(2 * D - Mp)
+    dist_km -= 2955.968 * math.cos(2 * D)
+    inc = r(LUNAR_EQUATOR_INCLINATION_DEG)
+    W = r(lam - e["Om"])
+    b = r(beta)
+    A = math.atan2(
+        math.sin(W) * math.cos(b) * math.cos(inc) - math.sin(b) * math.sin(inc),
+        math.cos(W) * math.cos(b),
+    )
+    lon = (math.degrees(A) - e["F"]) % 360.0
+    if lon > 180.0:
+        lon -= 360.0
+    lat = math.degrees(
+        math.asin(-math.sin(W) * math.cos(b) * math.sin(inc) - math.sin(b) * math.cos(inc))
+    )
+    return lat, lon, dist_km * 1e3
+
+
+def _selenographic_unit(lat_deg: float, lon_deg: float) -> FloatArray:
+    la, lo = math.radians(lat_deg), math.radians(lon_deg)
+    return np.array([math.cos(la) * math.cos(lo), math.cos(la) * math.sin(lo), math.sin(la)])
+
+
+def _enu_basis(lat_deg: float, lon_deg: float) -> FloatArray:
+    """Rows: East, North, Up unit vectors of the site in Moon-fixed coordinates."""
+    la, lo = math.radians(lat_deg), math.radians(lon_deg)
+    east = [-math.sin(lo), math.cos(lo), 0.0]
+    north = [-math.sin(la) * math.cos(lo), -math.sin(la) * math.sin(lo), math.cos(la)]
+    up = [math.cos(la) * math.cos(lo), math.cos(la) * math.sin(lo), math.sin(la)]
+    return np.array([east, north, up])
+
+
+def sun_astronomical(
+    latitude_deg: float,
+    longitude_deg: float,
+    utc: datetime,
+    irradiance_1au: float = SOLAR_IRRADIANCE_1AU,
+) -> SunState:
+    """Sun (and Earth) direction at selenographic site (lat, east lon) [deg] at ``utc``."""
+    if not -90.0 < latitude_deg < 90.0:
+        raise ValueError(
+            "latitude must be strictly between -90 and 90 deg (ENU undefined at poles)"
+        )
+    basis = _enu_basis(latitude_deg, longitude_deg)
+    slat, slon, r_au = subsolar_point(utc)
+    s_enu = basis @ _selenographic_unit(slat, slon)
+    az, el = enu_to_azel(s_enu)
+    elat, elon, edist = earth_selenographic(utc)
+    site = MOON_MEAN_RADIUS_M * _selenographic_unit(latitude_deg, longitude_deg)
+    earth_vec = edist * _selenographic_unit(elat, elon) - site
+    e_enu = basis @ earth_vec
+    return SunState(
+        direction=s_enu / np.linalg.norm(s_enu),
+        azimuth=float(az),
+        elevation=float(el),
+        irradiance=irradiance_1au / r_au**2,
+        distance_au=r_au,
+        earth_direction=e_enu / np.linalg.norm(e_enu),
+        earth_distance_m=float(np.linalg.norm(e_enu)),
+    )

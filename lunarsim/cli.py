@@ -26,6 +26,15 @@ def _cmd_gen_world(args: argparse.Namespace) -> int:
     write_label_png(out / "labels.png", world.terrain.labels)
     write_catalog(out / "craters", world.terrain.craters.to_records())
     write_catalog(out / "rocks", world.terrain.rocks.to_records())
+    far = world.terrain_far
+    if far is not None:
+        save_npy(out / "far_heightmap.npy", far.heightmap.z)
+        write_png16(
+            out / "far_heightmap.png", far.heightmap.z,
+            extra_meta={"resolution_m": far.heightmap.resolution},
+        )  # fmt: skip
+        write_label_png(out / "far_labels.png", far.labels)
+        write_catalog(out / "far_craters", far.craters.to_records())
     meta = world.metadata() | {"generation_time_s": dt}
     (out / "world.json").write_text(json.dumps(meta, indent=2))
     print(json.dumps(meta, indent=2))

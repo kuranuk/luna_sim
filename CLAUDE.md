@@ -25,6 +25,7 @@ mypy lunarsim                               # core/config は strict
 lunarsim gen-world configs/mare_plain.yaml --seed 1 --out out/world
 python scripts/demo_phase1.py               # out/phase1/ に画像
 python scripts/demo_phase2.py               # out/phase2/ にクレーター・岩石・ラベル・GT
+python scripts/demo_phase3.py               # out/phase3/ に南極・低太陽のカメラ画像
 
 # 依存の更新（ネットあり）
 scripts/update_lock.sh                      # requirements*.in -> *.lock
@@ -79,6 +80,21 @@ R_BODY_FROM_CAMERA: x_cam -> -y_body, y_cam -> -z_body, z_cam -> +x_body
 fractal (`terrain/fractal`) → tilt → craters (`terrain/craters/{count,size,position,cluster,degradation}`)
 → rocks (`terrain/rocks/{background,ejecta}`)。クレーターは劣化度 g が大きい（古い）順に刻印し、
 新しいクレーターが内部を上書きする。岩石は高さマップに半楕円体として加算（Q2）。
+
+2 層地形（`terrain.near.enabled`）: 遠方層 = `terrain/fractal/far` + 大クレーター（D ≥ 2×粗解像度,
+`terrain/craters/large`）、近傍パッチ = 遠方層（クレーター前）の 3 次スプライン補間 + タイル単位の細部
+（`terrain/detail/tile/{a}/{b}`）+ 小クレーター（`terrain/craters/small/tile/{a}/{b}`）+ 岩
+（`terrain/rocks/background/tile/{a}/{b}`, `terrain/rocks/ejecta/{crater_uid}`）。タイル格子は世界原点に固定、
+大クレーターの基準面は遠方層で 1 回だけ当てはめて再利用 → パッチ位置に依らず同じ地形。
+
+## レンダリング
+
+- 地表 = 高さマップの各セルを (i,j)-(i+1,j+1) 対角で 2 三角形に分割したメッシュ（`Heightmap.height_at_mesh` と一致）。
+- レイキャスト: max-mipmap 階層走査（`core/raycast/heightfield.py`）。numba（並列）/ numpy の 2 実装は同一アルゴリズム。
+  2 層は `LayeredCaster`（近傍パッチの xy 範囲内は近傍層、外は遠方層）。三角形は両面判定。
+- 陰影法線 = 格子点の中心差分勾配の双一次補間（滑らか）。影は幾何（三角形）で判定。
+- 放射輝度 [W m⁻² sr⁻¹] = 太陽放射照度 × r(i,e,g)。環境光ゼロ。カメラは帯域割合 `band_fraction` を掛けて電子数へ。
+- 乱数: カメラノイズ `sensor/camera/{name}/frame/{index:06d}`。
 
 ## 作業の進め方
 

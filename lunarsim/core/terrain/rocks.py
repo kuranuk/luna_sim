@@ -27,7 +27,9 @@ from lunarsim.core.terrain.labels import Label
 
 __all__ = [
     "RockCatalog",
+    "background_rocks",
     "cumulative_area_fraction",
+    "ejecta_rocks",
     "generate_rocks",
     "q_of_k",
     "sample_rock_diameters",
@@ -94,6 +96,31 @@ class RockCatalog:
             )
         )
 
+    def subset(self, sel: npt.ArrayLike) -> RockCatalog:
+        """Catalog restricted to a boolean mask or index array."""
+        m = np.asarray(sel)
+        return RockCatalog(
+            self.x[m],
+            self.y[m],
+            self.diameter[m],
+            self.height[m],
+            self.axis_ratio[m],
+            self.orientation[m],
+            self.source_crater[m],
+        )
+
+    def with_source(self, source_crater: IntArray) -> RockCatalog:
+        """Copy with replaced ``source_crater`` indices."""
+        return RockCatalog(
+            self.x,
+            self.y,
+            self.diameter,
+            self.height,
+            self.axis_ratio,
+            self.orientation,
+            np.asarray(source_crater, dtype=np.int64),
+        )
+
     def to_records(self) -> list[dict[str, float | int]]:
         """List of JSON-serialisable dicts."""
         return [
@@ -149,6 +176,55 @@ def _shapes(
     axis = rng.uniform(cfg.axis_ratio_min, 1.0, n)
     orient = rng.uniform(0.0, np.pi, n)
     return cfg.height_ratio * diam, axis, orient
+
+
+def ejecta_rocks(
+    cfg: RockConfig,
+    crater_x: float,
+    crater_y: float,
+    crater_d: float,
+    degradation: float,
+    crater_index: int,
+    rng: np.random.Generator,
+) -> RockCatalog:
+    """Blocks around one crater (rim/proximal ejecta annulus), see EjectaRockConfig."""
+    ej = cfg.ejecta
+    k_e = ej.k * (1.0 - degradation)
+    if k_e <= 1e-6 or crater_d < ej.min_crater_diameter_m:
+        return RockCatalog.empty()
+    d_max = min(cfg.d_max_m, ej.max_size_coeff * crater_d**ej.max_size_exp)
+    r_in, r_out = ej.inner_radii * 0.5 * crater_d, ej.outer_radii * 0.5 * crater_d
+    de = sample_rock_diameters(k_e, cfg.d_min_m, d_max, np.pi * (r_out**2 - r_in**2), rng)
+    if de.size == 0:
+        return RockCatalog.empty()
+    r = np.sqrt(rng.uniform(r_in**2, r_out**2, de.size))
+    th = rng.uniform(0.0, 2.0 * np.pi, de.size)
+    he, ae, oe = _shapes(de, cfg, rng)
+    return RockCatalog(
+        crater_x + r * np.cos(th),
+        crater_y + r * np.sin(th),
+        de,
+        he,
+        ae,
+        oe,
+        np.full(de.size, crater_index, dtype=np.int64),
+    )
+
+
+def background_rocks(
+    cfg: RockConfig,
+    box: tuple[float, float, float, float],
+    rng: np.random.Generator,
+) -> RockCatalog:
+    """Background rocks with centres uniform in ``box = (xmin, xmax, ymin, ymax)``."""
+    xmin, xmax, ymin, ymax = box
+    diam = sample_rock_diameters(
+        cfg.k, cfg.d_min_m, cfg.d_max_m, (xmax - xmin) * (ymax - ymin), rng
+    )
+    x = rng.uniform(xmin, xmax, diam.size)
+    y = rng.uniform(ymin, ymax, diam.size)
+    h, axis, orient = _shapes(diam, cfg, rng)
+    return RockCatalog(x, y, diam, h, axis, orient, np.full(diam.size, -1, dtype=np.int64))
 
 
 def generate_rocks(

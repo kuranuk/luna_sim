@@ -16,6 +16,9 @@ from typing import Annotated, Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 __all__ = [
+    "CameraConfig",
+    "CameraIntrinsicsConfig",
+    "CameraSensorConfig",
     "CraterClusteringConfig",
     "CraterConfig",
     "CraterDegradationConfig",
@@ -23,7 +26,14 @@ __all__ = [
     "CraterShapeConfig",
     "EjectaRockConfig",
     "FractalConfig",
+    "HapkeConfig",
+    "LunarLambertConfig",
+    "NearPatchConfig",
+    "ReflectanceConfig",
+    "RenderConfig",
     "RockConfig",
+    "SiteConfig",
+    "SunConfig",
     "TerrainConfig",
     "TiltConfig",
     "WorldConfig",
@@ -227,6 +237,40 @@ class RockConfig(_Model):
         return self
 
 
+class NearPatchConfig(_Model):
+    """Fine-resolution patch embedded in the coarse terrain (two-layer terrain, Q3).
+
+    The patch is aligned to a global lattice of tiles (``tile_cells`` cells at
+    ``resolution_m``) so it can be regenerated identically around any centre:
+    fine fractal detail, small craters and rocks are generated per tile from
+    tile-indexed random streams.
+    """
+
+    enabled: bool = False
+    size_m: PositiveFloat = 100.0
+    resolution_m: PositiveFloat = 0.05
+    center_x_m: float = 0.0
+    center_y_m: float = 0.0
+    tile_cells: int = Field(512, ge=64, le=4096)
+    overlap_cells: int = Field(64, ge=4, le=1024)
+    max_cells: int = Field(64_000_000, gt=0)
+
+    @property
+    def shape(self) -> tuple[int, int]:
+        """Patch grid shape ``(n, n)``."""
+        n = round(self.size_m / self.resolution_m) + 1
+        return n, n
+
+    @model_validator(mode="after")
+    def _check(self) -> NearPatchConfig:
+        n = self.shape[0]
+        if n * n > self.max_cells:
+            raise ValueError(f"near patch {n}x{n} exceeds max_cells={self.max_cells}")
+        if 2 * self.overlap_cells >= self.tile_cells:
+            raise ValueError("near.overlap_cells must be < tile_cells / 2")
+        return self
+
+
 class TerrainConfig(_Model):
     """Regular-grid heightmap (DEM) definition."""
 
@@ -241,6 +285,12 @@ class TerrainConfig(_Model):
     tilt: TiltConfig = TiltConfig()
     craters: CraterConfig = CraterConfig()
     rocks: RockConfig = RockConfig()
+    near: NearPatchConfig = NearPatchConfig()
+
+    @property
+    def finest_resolution_m(self) -> float:
+        """Resolution of the finest layer [m]."""
+        return self.near.resolution_m if self.near.enabled else self.resolution_m
 
     @property
     def shape(self) -> tuple[int, int]:
@@ -263,11 +313,145 @@ class TerrainConfig(_Model):
                 raise ValueError("fractal.baseline_m must be >= resolution_m")
             if self.fractal.baseline_m > 0.5 * min(self.size_x_m, self.size_y_m):
                 raise ValueError("fractal.baseline_m must be <= half the terrain size")
-        if self.craters.enabled and self.craters.sfd.d_min_m < 2.0 * self.resolution_m:
-            raise ValueError("craters.sfd.d_min_m must be >= 2 * resolution_m (unresolvable)")
-        if self.rocks.enabled and self.rocks.d_min_m < 2.0 * self.resolution_m:
-            raise ValueError("rocks.d_min_m must be >= 2 * resolution_m (unresolvable)")
+        fine = self.finest_resolution_m
+        if self.craters.enabled and self.craters.sfd.d_min_m < 2.0 * fine:
+            raise ValueError("craters.sfd.d_min_m must be >= 2 x finest resolution (unresolvable)")
+        if self.rocks.enabled and self.rocks.d_min_m < 2.0 * fine:
+            raise ValueError("rocks.d_min_m must be >= 2 x finest resolution (unresolvable)")
+        if self.near.enabled:
+            nr = self.near
+            if nr.resolution_m >= self.resolution_m:
+                raise ValueError("near.resolution_m must be finer than terrain.resolution_m")
+            if nr.tile_cells * nr.resolution_m < 8.0 * self.resolution_m:
+                raise ValueError("near tiles must span >= 8 coarse cells (tile_cells * res)")
+            half = 0.5 * nr.size_m + nr.overlap_cells * nr.resolution_m + 2 * self.resolution_m
+            if (
+                abs(nr.center_x_m) + half > 0.5 * self.size_x_m
+                or abs(nr.center_y_m) + half > 0.5 * self.size_y_m
+            ):
+                raise ValueError("near patch must lie inside the coarse terrain (with margin)")
         return self
+
+
+class SiteConfig(_Model):
+    """Selenographic location of the world origin (planetocentric, east longitude)."""
+
+    latitude_deg: float = Field(0.0, gt=-90.0, lt=90.0)
+    longitude_deg: float = Field(0.0, ge=-180.0, le=360.0)
+
+
+class SunConfig(_Model):
+    """Sun geometry: ``manual`` (azimuth/elevation) or ``astronomical`` (site + UTC)."""
+
+    mode: Literal["manual", "astronomical"] = "manual"
+    azimuth_deg: float = Field(135.0, ge=0.0, lt=360.0)
+    elevation_deg: float = Field(30.0, ge=-90.0, le=90.0)
+    distance_au: PositiveFloat = 1.0  # manual mode only
+    utc: str = "2026-01-01T00:00:00Z"  # ISO 8601, astronomical mode
+    # Total solar irradiance at 1 AU [W/m^2]; Kopp & Lean (2011): 1360.8 ± 0.5.
+    irradiance_1au_w_m2: PositiveFloat = 1361.0
+
+
+class HapkeConfig(_Model):
+    """Hapke parameters (single band).
+
+    * theta_bar_deg = 23.657: value fixed by Sato et al. (2014) for the LROC WAC maps
+      (secondary citation; a later LOLA study quotes a median of 23.4°).
+    * w, b, c, bs0, hs: **sample values**. TODO(ref): replace by Sato et al. (2014)
+      band-average values (e.g. 643 nm). w was chosen so that I/F ≈ 0.1 at
+      i = 30°, e = 0° (a generic lunar reflectance level), not from a fit.
+    * CBOE disabled (bc0 = 0) and K = 1 (filling_factor None) by default.
+    """
+
+    w: float = Field(0.38, gt=0.0, lt=1.0)
+    b: float = Field(0.25, ge=0.0, lt=1.0)
+    c: float = Field(0.5, ge=-1.0, le=1.0)
+    bs0: float = Field(1.5, ge=0.0)
+    hs: PositiveFloat = 0.05
+    bc0: float = Field(0.0, ge=0.0)
+    hc: PositiveFloat = 0.05
+    theta_bar_deg: float = Field(23.657, ge=0.0, lt=60.0)
+    filling_factor: float | None = Field(None, gt=0.0, lt=0.752)
+
+
+class LunarLambertConfig(_Model):
+    """McEwen (1991) lunar-Lambert; m1..m3 as in USGS ISIS (phase in degrees)."""
+
+    albedo: float = Field(0.12, gt=0.0, le=1.0)  # sample value (normal-albedo-like scale)
+    m1: float = -0.019
+    m2: float = 2.42e-4
+    m3: float = -1.46e-6
+
+
+class ReflectanceConfig(_Model):
+    """Surface reflectance model (single band, monochrome cameras)."""
+
+    model: Literal["hapke", "lunar_lambert", "lambert"] = "hapke"
+    hapke: HapkeConfig = HapkeConfig()
+    lunar_lambert: LunarLambertConfig = LunarLambertConfig()
+    lambert_albedo: float = Field(0.12, gt=0.0, le=1.0)
+
+
+class CameraIntrinsicsConfig(_Model):
+    """Pinhole + Brown-Conrady (OpenCV ``k1, k2, p1, p2, k3``)."""
+
+    width: int = Field(640, ge=8)
+    height: int = Field(480, ge=8)
+    hfov_deg: float = Field(60.0, gt=1.0, lt=170.0)
+    fx: PositiveFloat | None = None  # override hfov_deg
+    fy: PositiveFloat | None = None
+    cx: float | None = None  # default: image centre
+    cy: float | None = None
+    k1: float = 0.0
+    k2: float = 0.0
+    p1: float = 0.0
+    p2: float = 0.0
+    k3: float = 0.0
+
+
+class CameraSensorConfig(_Model):
+    """Radiometric sensor model. All values are generic sample values (no real device).
+
+    signal [e-] = L [W m^-2 sr^-1] · (π / (4 N²)) · A_pix · τ · t_exp · QE · λ / (h c)
+    with L the in-band radiance (solar irradiance × band_fraction).
+    """
+
+    exposure_s: PositiveFloat = 5.0e-4
+    auto_exposure: bool = False
+    # Auto exposure: the given percentile of the noise-free signal -> target of full well.
+    ae_percentile: float = Field(99.0, gt=0.0, le=100.0)
+    ae_target_fraction: float = Field(0.7, gt=0.0, le=1.0)
+    ae_max_exposure_s: PositiveFloat = 1.0
+    f_number: PositiveFloat = 4.0
+    pixel_pitch_m: PositiveFloat = 5.5e-6
+    transmission: float = Field(0.9, gt=0.0, le=1.0)
+    quantum_efficiency: float = Field(0.5, gt=0.0, le=1.0)
+    effective_wavelength_m: PositiveFloat = 600e-9
+    # Fraction of the total solar irradiance inside the camera band. TODO(ref): integrate
+    # a solar spectrum (e.g. ASTM E490) over the actual band; 0.35 is a sample value.
+    band_fraction: float = Field(0.35, gt=0.0, le=1.0)
+    full_well_e: PositiveFloat = 20000.0
+    read_noise_e: float = Field(5.0, ge=0.0)
+    dark_current_e_per_s: float = Field(10.0, ge=0.0)
+    bits: Literal[8, 10, 12, 14, 16] = 12
+    gain_e_per_dn: PositiveFloat | None = None  # default: full_well / (2^bits - 1)
+    black_level_dn: int = Field(0, ge=0)
+
+
+class CameraConfig(_Model):
+    """A monochrome camera (extrinsics on the rover come in Phase 5)."""
+
+    name: str = "cam0"
+    intrinsics: CameraIntrinsicsConfig = CameraIntrinsicsConfig()
+    sensor: CameraSensorConfig = CameraSensorConfig()
+
+
+class RenderConfig(_Model):
+    """Rendering options."""
+
+    # Shadow-ray origin offset along the surface normal [m] (avoids self-shadowing).
+    shadow_bias_m: PositiveFloat = 2.0e-3
+    backend: Literal["auto", "numba", "numpy"] = "auto"
 
 
 class WorldConfig(_Model):
@@ -276,6 +460,18 @@ class WorldConfig(_Model):
     name: str = "unnamed"
     seed: int = Field(0, ge=0)
     terrain: TerrainConfig = TerrainConfig()
+    site: SiteConfig = SiteConfig()
+    sun: SunConfig = SunConfig()
+    surface: ReflectanceConfig = ReflectanceConfig()
+    cameras: list[CameraConfig] = [CameraConfig()]
+    render: RenderConfig = RenderConfig()
+
+    @model_validator(mode="after")
+    def _unique_cameras(self) -> WorldConfig:
+        names = [c.name for c in self.cameras]
+        if len(set(names)) != len(names):
+            raise ValueError("camera names must be unique")
+        return self
 
 
 def config_hash(cfg: BaseModel) -> str:

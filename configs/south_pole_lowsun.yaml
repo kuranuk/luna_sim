@@ -1,0 +1,40 @@
+# Representative south-polar scenario (SPEC 4.1): sun a few degrees above the horizon,
+# long shadows. Two-layer terrain: 2 km x 2 km at 1 m + 100 m near patch at 5 cm.
+# Roughness / crater / rock values: see docs/references.md (several are sample values).
+name: south_pole_lowsun
+seed: 2026
+site:
+  latitude_deg: -89.5
+  longitude_deg: 0.0
+sun:
+  mode: astronomical
+  utc: "2026-12-20T00:00:00Z"   # simple model: elevation ≈ 1.6°, azimuth ≈ 49°
+terrain:
+  size_x_m: 2000.0
+  size_y_m: 2000.0
+  resolution_m: 1.0
+  fractal:
+    hurst: 0.85
+    rms_slope_deg: 6.0
+    baseline_m: 1.0
+    rolloff_wavelength_m: 400.0
+  tilt:
+    slope_deg: 3.0
+    downhill_azimuth_deg: 50.0
+  craters:
+    enabled: true
+    sfd: {mode: equilibrium, equilibrium_fraction: 0.02, d_min_m: 0.3, d_max_m: 300.0}
+  rocks:
+    enabled: true
+    k: 0.05
+    d_min_m: 0.15
+    d_max_m: 4.0
+    ejecta: {enabled: true, k: 0.15, min_crater_diameter_m: 20.0}
+  near:
+    enabled: true
+    size_m: 100.0
+    resolution_m: 0.05
+cameras:
+  - name: navcam
+    intrinsics: {width: 640, height: 480, hfov_deg: 70.0}
+    sensor: {auto_exposure: true, ae_percentile: 99.5, ae_target_fraction: 0.8, bits: 12}

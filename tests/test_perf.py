@@ -23,3 +23,29 @@ def test_terrain_1km_quarter_metre() -> None:
         f"{md['num_rocks']} rocks: {dt:.2f} s"
     )
     assert dt < 60.0
+
+
+@pytest.mark.perf
+@pytest.mark.parametrize("backend", ["numba", "numpy"])
+def test_camera_640x480_with_shadows(backend: str) -> None:
+    import math
+
+    from lunarsim.config import load_config
+    from lunarsim.core.raycast import HAS_NUMBA
+    from lunarsim.core.sensors.camera import camera_pose_from_body
+
+    if backend == "numba" and not HAS_NUMBA:
+        pytest.skip("numba not installed")
+    cfg = load_config(ROOT / "configs" / "south_pole_lowsun.yaml")
+    cfg = cfg.model_copy(update={"render": cfg.render.model_copy(update={"backend": backend})})
+    w = World(cfg)
+    pose = camera_pose_from_body(
+        [0, 0, w.height_at(0, 0) + 1.5], pitch=math.radians(8), yaw=math.radians(90 - 139)
+    )
+    w.render_camera("navcam", pose)  # warm-up / JIT
+    t0 = time.perf_counter()
+    w.render_camera("navcam", pose)
+    dt = time.perf_counter() - t0
+    print(f"\n640x480 camera + shadows, two-layer south pole, {backend}: {dt:.2f} s")
+    if backend == "numba":
+        assert dt < 1.0

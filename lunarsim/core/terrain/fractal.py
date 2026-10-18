@@ -16,7 +16,14 @@ import scipy.fft as sfft
 
 from lunarsim.config.schema import FractalConfig
 
-__all__ = ["rms_slope_at_baseline", "spectral_exponent", "synthesize_fractal"]
+__all__ = [
+    "fractal_psd",
+    "increment_variance",
+    "rms_slope_at_baseline",
+    "spectral_amplitude",
+    "spectral_exponent",
+    "synthesize_fractal",
+]
 
 FloatArray = npt.NDArray[np.float64]
 
@@ -87,3 +94,54 @@ def synthesize_fractal(
     target = float(np.tan(np.deg2rad(cfg.rms_slope_deg)))
     z *= target / s
     return z
+
+
+# ---------------------------------------------------------------------------
+# Absolute (ensemble) normalisation, used by the two-layer terrain.
+#
+# For white noise w (unit variance) on an n_y x n_x grid of spacing r, the field
+# z = irfft2(rfft2(w) * A(k)) with A(k) = sqrt(P(k)) / r has variance
+# sum_k P(k) Δk_x Δk_y, i.e. P is a two-sided PSD [m^2 / (cycles/m)^2]. The
+# expected squared increment at lag L along x is
+#     <(z(x + L) - z(x))^2> = sum_k P(k) Δk_x Δk_y · 2 (1 - cos(2π k_x L)).
+
+
+def fractal_psd(k2: FloatArray, cfg: FractalConfig) -> FloatArray:
+    """Unnormalised PSD ``(k² + k0²)^(-beta/2)`` (``k0`` from the roll-off), 0 at k = 0."""
+    kk = k2 + ((1.0 / cfg.rolloff_wavelength_m) ** 2 if cfg.rolloff_wavelength_m else 0.0)
+    with np.errstate(divide="ignore"):
+        p = kk ** (-spectral_exponent(cfg.hurst) / 2.0)
+    p[k2 == 0.0] = 0.0
+    return np.asarray(p, dtype=np.float64)
+
+
+def _freq_grid(ny: int, nx: int, res: float) -> tuple[FloatArray, FloatArray]:
+    ky = sfft.fftfreq(ny, d=res)
+    kx = sfft.rfftfreq(nx, d=res)
+    return ky, kx
+
+
+def increment_variance(
+    shape: tuple[int, int],
+    res: float,
+    psd: FloatArray,
+    lag_m: float,
+) -> float:
+    """Expected squared increment [m²] at ``lag_m`` along x of a field synthesised on
+    the rfft grid of ``shape`` with PSD values ``psd`` (rfft layout)."""
+    ny, nx = shape
+    ky, kx = _freq_grid(ny, nx, res)
+    dk2 = 1.0 / (ny * res * nx * res)
+    # rfft stores half the plane: weight 2 for columns that have a mirrored partner.
+    wcol = np.full(kx.size, 2.0)
+    wcol[0] = 1.0
+    if nx % 2 == 0:
+        wcol[-1] = 1.0
+    term = psd * dk2 * 2.0 * (1.0 - np.cos(2.0 * np.pi * kx[None, :] * lag_m))
+    del ky
+    return float(np.sum(term * wcol[None, :]))
+
+
+def spectral_amplitude(psd: FloatArray, res: float) -> FloatArray:
+    """Fourier filter amplitude ``sqrt(P) / r`` for the rfft synthesis."""
+    return np.asarray(np.sqrt(psd) / res, dtype=np.float64)

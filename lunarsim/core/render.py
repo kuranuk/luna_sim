@@ -1,0 +1,202 @@
+"""CPU ray-cast rendering of terrain radiance and ground-truth buffers.
+
+For every pixel: primary ray -> terrain hit -> shading normal -> sun shadow ray ->
+reflectance model -> radiance [W m^-2 sr^-1] (total solar band; the sensor model
+applies the in-band fraction). No ambient term: the Moon has no atmosphere
+(earthshine and inter-reflection are optional additions in Phase 8).
+"""
+
+from __future__ import annotations
+
+from collections.abc import Sequence
+from dataclasses import dataclass
+from typing import Protocol
+
+import numpy as np
+import numpy.typing as npt
+
+from lunarsim.config.schema import ReflectanceConfig
+from lunarsim.core.frames import Pose
+from lunarsim.core.illumination.brdf import reflectance
+from lunarsim.core.illumination.sun import SunState
+from lunarsim.core.raycast.heightfield import RayHits
+from lunarsim.core.sensors.camera import CameraModel
+from lunarsim.core.terrain.generate import Terrain
+from lunarsim.core.terrain.labels import Label
+
+__all__ = ["Caster", "RenderBuffers", "SurfaceSample", "render_rays", "sample_surface"]
+
+FloatArray = npt.NDArray[np.float64]
+
+
+class Caster(Protocol):
+    """Ray caster interface (see :mod:`lunarsim.core.raycast`)."""
+
+    def intersect(
+        self,
+        origins: npt.ArrayLike,
+        directions: npt.ArrayLike,
+        t_min: npt.ArrayLike = ...,
+        t_max: npt.ArrayLike = ...,
+    ) -> RayHits: ...
+
+    def occluded(
+        self,
+        origins: npt.ArrayLike,
+        directions: npt.ArrayLike,
+        t_max: npt.ArrayLike = ...,
+        t_min: npt.ArrayLike = ...,
+    ) -> npt.NDArray[np.bool_]: ...
+
+
+@dataclass(frozen=True)
+class SurfaceSample:
+    """Surface attributes at ray hits (rows of hit rays only).
+
+    Attributes:
+        points: Hit points in world ENU [m], ``(M, 3)``.
+        normals: Smooth shading normals: central-difference gradients at the grid
+            nodes, bilinearly interpolated (the geometry itself stays faceted), ``(M, 3)``.
+        labels: Terrain label of the nearest grid node, ``(M,)``.
+    """
+
+    points: FloatArray
+    normals: FloatArray
+    labels: npt.NDArray[np.uint8]
+
+
+def _node_gradient_bilinear(
+    z: FloatArray,
+    res: float,
+    i: npt.NDArray[np.int64],
+    j: npt.NDArray[np.int64],
+    fu: FloatArray,
+    fv: FloatArray,
+) -> tuple[FloatArray, FloatArray]:
+    """Bilinear interpolation of node gradients (central differences, one-sided at edges)."""
+    ny, nx = z.shape
+
+    def grad(ii: npt.NDArray[np.int64], jj: npt.NDArray[np.int64]) -> tuple[FloatArray, FloatArray]:
+        jm, jp = np.maximum(jj - 1, 0), np.minimum(jj + 1, nx - 1)
+        im, ip = np.maximum(ii - 1, 0), np.minimum(ii + 1, ny - 1)
+        gx = (z[ii, jp] - z[ii, jm]) / ((jp - jm) * res)
+        gy = (z[ip, jj] - z[im, jj]) / ((ip - im) * res)
+        return gx, gy
+
+    g00, g01, g10, g11 = grad(i, j), grad(i, j + 1), grad(i + 1, j), grad(i + 1, j + 1)
+    w00, w01 = (1 - fu) * (1 - fv), fu * (1 - fv)
+    w10, w11 = (1 - fu) * fv, fu * fv
+    gx = w00 * g00[0] + w01 * g01[0] + w10 * g10[0] + w11 * g11[0]
+    gy = w00 * g00[1] + w01 * g01[1] + w10 * g10[1] + w11 * g11[1]
+    return np.asarray(gx), np.asarray(gy)
+
+
+def sample_surface(
+    layers: Sequence[Terrain], o: FloatArray, d: FloatArray, hits: RayHits
+) -> SurfaceSample:
+    """Points, normals and labels at the hits (``hits.hit`` rows of ``o``/``d``)."""
+    m = hits.hit
+    pts = o[m] + d[m] * hits.t[m, None]
+    nrm = np.zeros_like(pts)
+    lab = np.zeros(pts.shape[0], dtype=np.uint8)
+    lay = hits.layer[m]
+    qi, qj = hits.qi[m], hits.qj[m]
+    for li, terrain in enumerate(layers):
+        sel = lay == li
+        if not sel.any():
+            continue
+        hm = terrain.heightmap
+        i, j = qi[sel], qj[sel]
+        fu = np.clip((pts[sel, 0] - hm.x0) / hm.resolution - j, 0.0, 1.0)
+        fv = np.clip((pts[sel, 1] - hm.y0) / hm.resolution - i, 0.0, 1.0)
+        gx, gy = _node_gradient_bilinear(hm.z, hm.resolution, i, j, fu, fv)
+        n = np.stack([-gx, -gy, np.ones_like(gx)], axis=1)
+        nrm[sel] = n / np.linalg.norm(n, axis=1, keepdims=True)
+        ni = i + (fv >= 0.5).astype(np.int64)
+        nj = j + (fu >= 0.5).astype(np.int64)
+        lab[sel] = terrain.labels[ni, nj]
+    return SurfaceSample(points=pts, normals=nrm, labels=lab)
+
+
+@dataclass(frozen=True)
+class RenderBuffers:
+    """Per-pixel outputs (images of shape ``(H, W)`` unless noted).
+
+    Attributes:
+        radiance: Total-band radiance [W m^-2 sr^-1] (0 for sky / shadow).
+        depth: Z in the camera frame [m] (``inf`` for sky).
+        range_m: Distance along the ray [m] (``inf`` for sky).
+        normals: World ENU shading normals, ``(H, W, 3)`` (0 for sky).
+        labels: Terrain labels (``Label.SKY`` for sky).
+        shadow: True where the visible surface receives no direct sunlight.
+        layer: Terrain layer index hit (-1 for sky).
+        points: World hit points ``(H, W, 3)`` [m] (nan for sky).
+    """
+
+    radiance: FloatArray
+    depth: FloatArray
+    range_m: FloatArray
+    normals: FloatArray
+    labels: npt.NDArray[np.uint8]
+    shadow: npt.NDArray[np.bool_]
+    layer: npt.NDArray[np.int64]
+    points: FloatArray
+
+
+def render_rays(
+    layers: Sequence[Terrain],
+    caster: Caster,
+    sun: SunState,
+    surface: ReflectanceConfig,
+    camera: CameraModel,
+    T_world_camera: Pose,
+    shadow_bias_m: float,
+) -> RenderBuffers:
+    """Render the radiance and ground-truth buffers of one camera view."""
+    h, w = camera.height, camera.width
+    rays_cam = camera.pixel_rays()
+    d = T_world_camera.rotate(rays_cam)
+    o = np.broadcast_to(T_world_camera.t, d.shape).copy()
+    hits = caster.intersect(o, d)
+    m = hits.hit
+    surf = sample_surface(layers, o, d, hits)
+
+    n_pix = h * w
+    radiance = np.zeros(n_pix)
+    shadow = np.zeros(n_pix, dtype=bool)
+    labels = np.full(n_pix, Label.SKY, dtype=np.uint8)
+    normals = np.zeros((n_pix, 3))
+    points = np.full((n_pix, 3), np.nan)
+    labels[m] = surf.labels
+    normals[m] = surf.normals
+    points[m] = surf.points
+
+    if m.any():
+        s = np.broadcast_to(sun.direction, surf.normals.shape)
+        mu0 = surf.normals @ sun.direction
+        facing = (mu0 > 0.0) & (sun.elevation > -0.5 * np.pi)
+        lit = facing.copy()
+        idx = np.flatnonzero(facing)
+        if idx.size:
+            so = surf.points[idx] + shadow_bias_m * surf.normals[idx]
+            blocked = caster.occluded(so, s[idx])
+            lit[idx[blocked]] = False
+        v = -d[m]
+        r = reflectance(surface, surf.normals, s, v)
+        rad = np.where(lit, r * sun.irradiance, 0.0)
+        radiance[m] = rad
+        shadow[m] = ~lit
+
+    rng = np.where(m, hits.t, np.inf)
+    z_axis = T_world_camera.R[:, 2]
+    depth = np.where(m, rng * (d @ z_axis), np.inf)
+    return RenderBuffers(
+        radiance=radiance.reshape(h, w),
+        depth=depth.reshape(h, w),
+        range_m=rng.reshape(h, w),
+        normals=normals.reshape(h, w, 3),
+        labels=labels.reshape(h, w),
+        shadow=shadow.reshape(h, w),
+        layer=hits.layer.reshape(h, w),
+        points=points.reshape(h, w, 3),
+    )

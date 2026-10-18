@@ -72,6 +72,7 @@ class CraterCatalog:
             (and deepens the floor correspondingly, keeping d).
         degradation: g in [0, 1] (0 fresh, 1 most degraded).
         cluster_id: -1 for background craters, else the cluster index.
+        uid: Optional stable string ids (two-layer terrain); default: age rank.
     """
 
     x: FloatArray
@@ -81,6 +82,7 @@ class CraterCatalog:
     rim_height: FloatArray
     degradation: FloatArray
     cluster_id: IntArray
+    uid: npt.NDArray[np.str_] | None = None
 
     def __len__(self) -> int:
         return int(self.x.size)
@@ -91,11 +93,33 @@ class CraterCatalog:
         z = np.zeros(0)
         return cls(z, z, z, z, z, z, np.zeros(0, dtype=np.int64))
 
-    def to_records(self) -> list[dict[str, float | int]]:
+    def subset(self, idx: npt.ArrayLike) -> CraterCatalog:
+        """Catalog restricted to (and ordered by) ``idx``."""
+        ix = np.asarray(idx, dtype=np.intp)
+        return CraterCatalog(
+            self.x[ix], self.y[ix], self.diameter[ix], self.depth[ix], self.rim_height[ix],
+            self.degradation[ix], self.cluster_id[ix], None if self.uid is None else self.uid[ix],
+        )  # fmt: skip
+
+    @classmethod
+    def concat(cls, parts: list[CraterCatalog]) -> CraterCatalog:
+        """Concatenate catalogs (uids required on all parts or none)."""
+        parts = [p for p in parts if len(p)]
+        if not parts:
+            return cls.empty()
+        fields = ("x", "y", "diameter", "depth", "rim_height", "degradation", "cluster_id")
+        arrays = [np.concatenate([getattr(p, f) for p in parts]) for f in fields]
+        uids = None
+        if all(p.uid is not None for p in parts):
+            uids = np.concatenate([p.uid for p in parts if p.uid is not None])
+        x, y, d, dep, rim, g, cid = arrays
+        return cls(x, y, d, dep, rim, g, cid, uids)
+
+    def to_records(self) -> list[dict[str, float | int | str]]:
         """List of JSON-serialisable dicts (``id`` = age rank, 0 = oldest)."""
         return [
             {
-                "id": i,
+                "id": i if self.uid is None else str(self.uid[i]),
                 "x_m": float(self.x[i]),
                 "y_m": float(self.y[i]),
                 "diameter_m": float(self.diameter[i]),
@@ -289,11 +313,18 @@ def stamp_craters(
     shape: CraterShapeConfig,
     labels: npt.NDArray[np.uint8] | None = None,
     label_min_diameter_m: float | None = None,
+    planes: FloatArray | None = None,
+    out_planes: FloatArray | None = None,
 ) -> None:
     """Stamp craters into ``hm.z`` in place, in catalog (age) order.
 
     If ``labels`` is given, crater interior/rim labels are written for craters with
     ``D >= label_min_diameter_m`` (default 4 cells); younger craters overwrite older.
+
+    ``planes`` (N, 3), if given, supplies the pre-impact reference plane
+    ``z = a + b dx + c dy`` (relative to the crater centre) for rows that are finite;
+    other rows are fitted on the current terrain. ``out_planes`` (N, 3) receives the
+    planes actually used.
     """
     z = hm.z
     ny, nx = z.shape
@@ -322,17 +353,24 @@ def stamp_craters(
         dyb = np.broadcast_to(dy, rho.shape)
         # Fit a plane only when most of the ring lies on the grid; a partial ring
         # (crater at the border) can make the fit extrapolate wildly.
-        n_ring_full = np.pi * (_RING_OUT**2 - _RING_IN**2) * (R / res) ** 2
-        n_ring = int(ring.sum())
-        plane = (
-            _fit_plane(dxb[ring], dyb[ring], patch[ring]) if n_ring >= 0.5 * n_ring_full else None
-        )
-        if plane is None:
-            level = float(patch[ring].mean()) if n_ring > 0 else float(patch.mean())
-            ref = np.full_like(patch, level)
+        if planes is not None and np.isfinite(planes[k]).all():
+            a, b, c = (float(v) for v in planes[k])
         else:
-            a, b, c = plane
-            ref = a + b * dx + c * dy
+            n_ring_full = np.pi * (_RING_OUT**2 - _RING_IN**2) * (R / res) ** 2
+            n_ring = int(ring.sum())
+            plane = (
+                _fit_plane(dxb[ring], dyb[ring], patch[ring])
+                if n_ring >= 0.5 * n_ring_full
+                else None
+            )
+            if plane is None:
+                level = float(patch[ring].mean()) if n_ring > 0 else float(patch.mean())
+                a, b, c = level, 0.0, 0.0
+            else:
+                a, b, c = plane
+        if out_planes is not None:
+            out_planes[k] = (a, b, c)
+        ref = a + b * dx + c * dy
         w = np.clip((_REPLACE_OUT - rho) / (_REPLACE_OUT - _REPLACE_IN), 0.0, 1.0)
         patch += delta + w * (ref - patch)
 

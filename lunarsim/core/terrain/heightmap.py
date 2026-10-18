@@ -110,6 +110,30 @@ class Heightmap:
         out = (z00 * (1 - fu) + z01 * fu) * (1 - fv) + (z10 * (1 - fu) + z11 * fu) * fv
         return np.asarray(out, dtype=np.float64)
 
+    def height_at_mesh(self, x: npt.ArrayLike, y: npt.ArrayLike) -> FloatArray:
+        """Elevation [m] on the triangulated surface used by the ray caster.
+
+        Each quad is split along its (i, j)-(i+1, j+1) diagonal. Points outside the
+        grid are clamped to the border.
+        """
+        xa = np.asarray(x, dtype=np.float64)
+        ya = np.asarray(y, dtype=np.float64)
+        ny, nx = self.shape
+        u = np.clip((xa - self.x0) / self.resolution, 0.0, nx - 1.0)
+        v = np.clip((ya - self.y0) / self.resolution, 0.0, ny - 1.0)
+        j = np.minimum(np.floor(u).astype(np.intp), nx - 2)
+        i = np.minimum(np.floor(v).astype(np.intp), ny - 2)
+        fu = u - j
+        fv = v - i
+        z = self.z
+        z00 = z[i, j]
+        zx = z[i, j + 1]
+        zy = z[i + 1, j]
+        z11 = z[i + 1, j + 1]
+        lower = z00 + fu * (zx - z00) + fv * (z11 - zx)  # triangle (00, x+, 11), fu >= fv
+        upper = z00 + fv * (zy - z00) + fu * (z11 - zy)  # triangle (00, 11, y+), fv > fu
+        return np.asarray(np.where(fu >= fv, lower, upper), dtype=np.float64)
+
     def gradient(self) -> tuple[FloatArray, FloatArray]:
         """``(dz/dx, dz/dy)`` [m/m] by central differences (one-sided at the border)."""
         dzdy, dzdx = np.gradient(self.z, self.resolution)

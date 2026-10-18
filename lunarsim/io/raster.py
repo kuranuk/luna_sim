@@ -15,7 +15,14 @@ import numpy.typing as npt
 from PIL import Image
 from PIL.PngImagePlugin import PngInfo
 
-__all__ = ["load_npy", "read_png16", "save_npy", "write_png8", "write_png16"]
+__all__ = [
+    "load_npy",
+    "read_png16",
+    "save_npy",
+    "write_png8",
+    "write_png16",
+    "write_uint16_png",
+]
 
 _META_KEY = "lunarsim"
 
@@ -82,3 +89,11 @@ def write_png8(path: str | Path, image: npt.ArrayLike, *, flip_north_up: bool = 
     if flip_north_up:
         q = q[::-1]
     Image.fromarray(np.ascontiguousarray(q)).save(Path(path))
+
+
+def write_uint16_png(path: str | Path, image: npt.ArrayLike) -> None:
+    """Write integer data (e.g. camera DN) as a 16-bit grayscale PNG, rows as given."""
+    a = np.asarray(image)
+    if a.min() < 0 or a.max() > 65535:
+        raise ValueError("values must fit in uint16")
+    Image.fromarray(np.ascontiguousarray(a.astype(np.uint16))).save(Path(path))
