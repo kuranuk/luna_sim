@@ -29,7 +29,10 @@ python scripts/demo_phase3.py               # out/phase3/ に南極・低太陽�
 python scripts/demo_phase4.py               # out/phase4/ に LiDAR 点群（PLY/PCD）と画像
 python scripts/demo_phase5.py               # out/phase5/ にローバー走行・ステレオ・ライト
 python scripts/demo_phase6.py               # out/phase6/ にサーバ + クライアント + WS 走行
+python scripts/demo_phase7.py               # out/phase7/ にデータセット + ビューアのスクショ
 lunarsim serve                              # API サーバ（127.0.0.1:8000, /docs）
+lunarsim serve --world configs/south_pole_lowsun.yaml   # ビューア: /viewer/#token=...
+lunarsim dataset configs/dataset_south_pole_sun_sweep.yaml   # データセット生成
 
 # 依存の更新（ネットあり）
 scripts/update_lock.sh                      # requirements*.in -> *.lock
@@ -135,6 +138,15 @@ fractal (`terrain/fractal`) → tilt → craters (`terrain/craters/{count,size,p
 - 依存の版: fastapi 0.141.1（0.142 以降は opentelemetry-api が必須依存になるため）、starlette 1.7.0 /
   websockets 16.1.1（Python 3.10 対応の最終版）。lock にテレメトリ系が無いことをテストで検査。
 - ROS 2 は `lunarsim/bridge/base.py` のインターフェースのみ（未実装）。
+
+## ビューア / データセット（Phase 7）
+
+- ビューア `lunarsim/viewer/static/`（素の ES モジュール、ビルド不要）。Three.js は `vendor/` に同梱（CDN 禁止）。
+  3D は ENU（`camera.up = z`）。高さマップは `format=f32&max_size=N`、点群は `format=bin`（float32 xyzI）で取得。
+  トークンは URL の `#token=`（サーバへ送られない fragment）→ sessionStorage。
+- データセット `lunarsim/datasets/`: 1 つの World を `reset_dynamic()` して変種ごとに同じ軌跡を再生。
+  地形と運動は太陽に依存しないので姿勢は全変種で一致（テストで検査）。KITTI 姿勢は左カメラの T_c0_ck。
+  ジョブ YAML の `scenario` はジョブ YAML からの相対パス。
 
 ## 作業の進め方
 

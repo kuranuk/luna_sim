@@ -51,14 +51,26 @@ def _cmd_serve(args: argparse.Namespace) -> int:
         return 2
     settings = ServerSettings.from_env(
         host=args.host, port=args.port, token=args.token, allow_insecure=args.allow_insecure,
-        max_worlds=args.max_worlds,
+        max_worlds=args.max_worlds, preload_worlds=args.world or None,
     )  # fmt: skip
     try:
         settings.check_exposure()
     except ValueError as exc:
         print(f"error: {exc}")
         return 2
+    print(f"LunarSim viewer: http://{settings.host}:{settings.port}/viewer/"
+          + ("#token=<your token>" if settings.token else ""))  # fmt: skip
     uvicorn.run(create_app(settings), host=settings.host, port=settings.port, log_level="info")
+    return 0
+
+
+def _cmd_dataset(args: argparse.Namespace) -> int:
+    from lunarsim.datasets import generate_dataset, load_dataset_config
+
+    cfg, scenario = load_dataset_config(args.config)
+    t0 = time.perf_counter()
+    out = generate_dataset(cfg, scenario, args.out)
+    print(f"dataset written to {out} in {time.perf_counter() - t0:.1f} s")
     return 0
 
 
@@ -71,6 +83,10 @@ def main(argv: list[str] | None = None) -> int:
     g.add_argument("--seed", type=int, default=None, help="override seed")
     g.add_argument("--out", default="out/world", help="output directory")
     g.set_defaults(func=_cmd_gen_world)
+    ds = sub.add_parser("dataset", help="generate a dataset from a dataset YAML")
+    ds.add_argument("config", help="dataset YAML (see configs/dataset_*.yaml)")
+    ds.add_argument("--out", default=None, help="override output_dir")
+    ds.set_defaults(func=_cmd_dataset)
     sv = sub.add_parser("serve", help="run the REST/WebSocket server")
     sv.add_argument("--host", default=None, help="bind address (default 127.0.0.1)")
     sv.add_argument("--port", type=int, default=None)
@@ -78,6 +94,8 @@ def main(argv: list[str] | None = None) -> int:
     sv.add_argument("--allow-insecure", action="store_true",
                     help="allow a non-loopback bind without a token")  # fmt: skip
     sv.add_argument("--max-worlds", type=int, default=None)
+    sv.add_argument("--world", action="append", default=[], metavar="YAML",
+                    help="create a world from this scenario at start-up (repeatable)")  # fmt: skip
     sv.set_defaults(func=_cmd_serve)
     args = parser.parse_args(argv)
     return int(args.func(args))

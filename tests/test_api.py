@@ -291,3 +291,36 @@ def test_python_client_against_live_server(live_server: str) -> None:
     c.delete_world(wid)
     assert c.list_worlds() == []
     _ = read_pcd  # imported helper kept for symmetry with PLY
+
+
+def test_viewer_formats(client: TestClient) -> None:
+    wid = _create(client)
+    ref = World(parse_config(CFG))
+    r = client.get(f"/worlds/{wid}/heightmap", params={"format": "f32", "max_size": 41})
+    rows, cols = int(r.headers["x-rows"]), int(r.headers["x-cols"])
+    z = np.frombuffer(r.content, dtype="<f4").reshape(rows, cols)
+    stride = -(-max(ref.heightmap.z.shape) // 41)
+    np.testing.assert_allclose(z, ref.heightmap.z[::stride, ::stride], atol=1e-4)
+    assert max(rows, cols) <= 41 and float(r.headers["x-resolution-m"]) == 0.25 * stride
+    r = client.get(f"/worlds/{wid}/sensors/lidar/spad", params={"format": "bin"})
+    pts = np.frombuffer(r.content, dtype="<f4").reshape(-1, 4)
+    assert pts.shape[0] == int(r.headers["x-points"]) > 0
+    assert np.asarray(json.loads(r.headers["x-pose"])).shape == (4, 4)
+
+
+def test_viewer_static_and_preload(tmp_path: Path) -> None:
+    import yaml
+
+    p = tmp_path / "w.yaml"
+    p.write_text(yaml.safe_dump(CFG))
+    app = create_app(ServerSettings(token="tok", preload_worlds=[str(p)]))
+    with TestClient(app) as c:
+        r = c.get("/", follow_redirects=False)
+        assert r.status_code in (302, 307) and r.headers["location"] == "/viewer/"
+        page = c.get("/viewer/")  # static files need no token; data endpoints do
+        assert page.status_code == 200 and "importmap" in page.text
+        js = c.get("/viewer/vendor/three.module.js")
+        assert js.status_code == 200 and "http" not in page.text.split("importmap")[1][:200]
+        assert c.get("/worlds").status_code == 401
+        lst = c.get("/worlds", headers={"Authorization": "Bearer tok"}).json()
+        assert len(lst) == 1

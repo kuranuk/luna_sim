@@ -11,11 +11,13 @@ import asyncio
 import json
 import secrets
 from collections.abc import Callable
+from pathlib import Path
 from typing import Annotated, Any, TypeVar
 
 import yaml
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, WebSocket
-from fastapi.responses import JSONResponse, Response
+from fastapi.responses import JSONResponse, RedirectResponse, Response
+from fastapi.staticfiles import StaticFiles
 from pydantic import ValidationError
 from starlette.concurrency import run_in_threadpool
 from starlette.websockets import WebSocketDisconnect
@@ -63,6 +65,10 @@ def create_app(settings: ServerSettings | None = None) -> FastAPI:
     )
     app.state.registry = registry
     app.state.settings = cfg
+    for path in cfg.preload_worlds:
+        from lunarsim.config.load import load_config as _load
+
+        registry.add(World(_load(path)))
 
     # ------------------------------------------------------------------ helpers
     def check_token(supplied: str | None) -> None:
@@ -94,6 +100,14 @@ def create_app(settings: ServerSettings | None = None) -> FastAPI:
             raise HTTPException(422, str(exc)) from None
 
     deps = [Depends(auth)]
+
+    static_dir = Path(__file__).resolve().parents[1] / "viewer" / "static"
+    if static_dir.is_dir():  # browser viewer (static files only; data needs the token)
+        app.mount("/viewer", StaticFiles(directory=static_dir, html=True), name="viewer")
+
+        @app.get("/", include_in_schema=False)
+        def root() -> RedirectResponse:
+            return RedirectResponse("/viewer/")
 
     # ------------------------------------------------------------------ service
     @app.get("/health")
@@ -164,20 +178,31 @@ def create_app(settings: ServerSettings | None = None) -> FastAPI:
     @app.get("/worlds/{world_id}/heightmap", dependencies=deps)
     async def heightmap(
         world_id: str,
-        fmt: Annotated[str, Query(alias="format", pattern="^(npy|png16)$")] = "npy",
+        fmt: Annotated[str, Query(alias="format", pattern="^(npy|png16|f32)$")] = "npy",
         layer: Annotated[str, Query(pattern="^(near|far)$")] = "near",
+        max_size: Annotated[
+            int | None, Query(ge=2, description="decimate to <= N per side")
+        ] = None,
     ) -> Response:
         def make(w: World) -> tuple[bytes, dict[str, str], str]:
             hm = _layer(w, layer).heightmap
+            z, res = hm.z, hm.resolution
+            if max_size is not None and max(z.shape) > max_size:
+                stride = -(-max(z.shape) // max_size)  # ceil division; keeps the origin node
+                z, res = z[::stride, ::stride], res * stride
             hdr = {
-                "X-Resolution-M": repr(hm.resolution),
+                "X-Resolution-M": repr(res),
                 "X-Origin-X-M": repr(hm.x0),
                 "X-Origin-Y-M": repr(hm.y0),
-                "X-Row-Order": "south-to-north" if fmt == "npy" else "north-up",
+                "X-Rows": str(z.shape[0]),
+                "X-Cols": str(z.shape[1]),
+                "X-Row-Order": "north-up" if fmt == "png16" else "south-to-north",
             }
             if fmt == "npy":
-                return encode_npy(hm.z), hdr, NPY
-            data, meta = encode_png16(hm.z, extra_meta={"resolution_m": hm.resolution})
+                return encode_npy(z), hdr, NPY
+            if fmt == "f32":  # raw little-endian float32, row-major (for the viewer)
+                return z.astype("<f4").tobytes(), hdr, "application/octet-stream"
+            data, meta = encode_png16(z, extra_meta={"resolution_m": res})
             hdr["X-Offset-M"] = repr(meta["offset"])
             hdr["X-Scale-M"] = repr(meta["scale"])
             return data, hdr, "image/png"
@@ -322,7 +347,14 @@ def create_app(settings: ServerSettings | None = None) -> FastAPI:
             scan = await run_in_threadpool(make)
         except KeyError as exc:
             raise HTTPException(404, f"unknown lidar {exc}") from None
-        hdr = {"X-Points": str(len(scan)), "X-Frame-Index": str(frame_index)}
+        hdr = {
+            "X-Points": str(len(scan)),
+            "X-Frame-Index": str(frame_index),
+            "X-Pose": json.dumps(scan.pose.matrix().tolist()),
+        }
+        if fmt == "bin":  # KITTI velodyne layout: float32 x, y, z, intensity (sensor frame)
+            data = scan.points.astype("<f4").tobytes()
+            return Response(data, media_type="application/octet-stream", headers=hdr)
         if fmt == "json":
             if len(scan) > cfg.max_json_points:
                 raise HTTPException(413, f"{len(scan)} points: use format=npz/ply/pcd")

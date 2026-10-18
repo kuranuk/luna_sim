@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LunarSim Viewer</title>
+  <link rel="stylesheet" href="style.css">
+  <!-- All JavaScript is served locally (no CDN): Three.js r160 is vendored under vendor/. -->
+  <script type="importmap">
+    { "imports": { "three": "./vendor/three.module.js" } }
+  </script>
+</head>
+<body>
+  <div id="view"></div>
+  <aside id="panel">
+    <h1>LunarSim</h1>
+    <section>
+      <label>World <select id="world"></select></label>
+      <button id="reload" title="Reload world list">⟳</button>
+      <details id="create-box">
+        <summary>New world from YAML</summary>
+        <textarea id="yaml" rows="8" spellcheck="false">name: viewer_demo
+seed: 1
+terrain:
+  size_x_m: 120
+  size_y_m: 120
+  resolution_m: 0.25
+  craters: {enabled: true}
+  rocks: {enabled: true, k: 0.08, d_min_m: 0.5}
+sun: {azimuth_deg: 120, elevation_deg: 8}
+lights: [{name: headlight}]
+</textarea>
+        <button id="create">Create</button>
+      </details>
+    </section>
+    <section>
+      <h2>Sun</h2>
+      <label>Azimuth <input id="sun-az" type="range" min="0" max="359" step="1"><span id="sun-az-v"></span>°</label>
+      <label>Elevation <input id="sun-el" type="range" min="-5" max="90" step="0.5"><span id="sun-el-v"></span>°</label>
+    </section>
+    <section>
+      <h2>Rover</h2>
+      <p class="hint">W/S: forward/back · A/D: turn · Space: stop</p>
+      <button id="run">▶ Run</button>
+      <label><input id="follow" type="checkbox" checked> Follow</label>
+      <div id="lights"></div>
+    </section>
+    <section>
+      <h2>Sensors</h2>
+      <label>Camera <select id="cam"></select></label>
+      <label>LiDAR <select id="lidar"></select></label>
+      <label><input id="auto-cam" type="checkbox" checked> Camera image (1 Hz)</label>
+      <label><input id="auto-lidar" type="checkbox" checked> LiDAR points (1 Hz)</label>
+    </section>
+    <pre id="hud"></pre>
+    <p class="hint">Viewer shading is an OpenGL approximation; the camera image on the right is
+      the physically based render (Hapke, cast shadows, sensor noise).</p>
+  </aside>
+  <figure id="camera-box"><img id="camera-img" alt="camera"><figcaption id="camera-cap"></figcaption></figure>
+  <div id="error"></div>
+  <script type="module" src="app.js"></script>
+</body>
+</html>

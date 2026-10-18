@@ -27,6 +27,7 @@ class ServerSettings(BaseModel):
     max_worlds: int = Field(4, ge=1)
     max_json_points: int = Field(50_000, ge=1)
     render_cache_size: int = Field(8, ge=0)
+    preload_worlds: list[str] = []  # scenario YAML paths created at start-up
 
     @classmethod
     def from_env(cls, **overrides: object) -> ServerSettings:

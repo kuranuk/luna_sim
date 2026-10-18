@@ -12,7 +12,13 @@ CONFIGS = sorted((Path(__file__).parents[1] / "configs").glob("*.yaml"))
 
 @pytest.mark.parametrize("path", CONFIGS, ids=lambda p: p.name)
 def test_shipped_configs_validate(path: Path) -> None:
-    load_config(path)
+    if path.name.startswith("dataset_"):  # dataset jobs reference a world scenario
+        from lunarsim.datasets import load_dataset_config
+
+        _, scenario = load_dataset_config(path)
+        load_config(scenario)
+    else:
+        load_config(path)
 
 
 def test_unknown_key_rejected() -> None:

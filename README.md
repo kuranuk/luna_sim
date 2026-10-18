@@ -32,6 +32,43 @@ python scripts/demo_phase3.py   # 南極域・低太陽高度のカメラ画像
 python scripts/demo_phase4.py   # SPAD フラッシュ LiDAR / 回転式 LiDAR の点群（PLY/PCD）
 python scripts/demo_phase5.py   # ローバー走行（接地・すべり）、ステレオ、ライト
 python scripts/demo_phase6.py   # サーバ起動 + Python クライアント + WebSocket 走行
+python scripts/demo_phase7.py   # データセット生成（太陽高度 3 条件）+ ビューアのスクリーンショット
+```
+
+## ブラウザビューア
+
+```bash
+LUNARSIM_TOKEN=xxxx lunarsim serve --world configs/south_pole_lowsun.yaml
+# → http://127.0.0.1:8000/viewer/#token=xxxx を開く（トークンなしで起動した場合は #token 不要）
+```
+
+Three.js（r160, MIT）は `lunarsim/viewer/static/vendor/` に同梱しており、CDN にはアクセスしません。
+地形（近傍・遠方層）、太陽方向、ローバー、LiDAR 点群、カメラ画像（物理ベース描画）を表示し、
+W/A/S/D で走行、スライダで太陽方位・高度、チェックでライトを切り替えます。
+ビューア内の 3D 陰影は OpenGL の近似で、右上のカメラ画像がシミュレータの描画結果です。
+
+## データセット生成
+
+```bash
+lunarsim dataset configs/dataset_south_pole_sun_sweep.yaml [--out out/datasets/xxx]
+```
+
+同じ地形・同じ軌跡を太陽条件（方位・高度・UTC・ライト）ごとに生成します（姿勢は全条件でビット一致）。
+
+```
+<out>/dataset.yaml, scenario.yaml, summary.json
+<out>/terrain/            near/far_heightmap.npy, craters/rocks .json, geometry.json
+<out>/<variation>/
+    times.txt
+    cameras/<cam>/left|right/NNNNNN.png   16-bit DN
+    cameras/<cam>/depth/NNNNNN.npy        float32 Z [m]（inf = 空）
+    cameras/<cam>/labels|shadow/NNNNNN.png uint8
+    lidars/<lidar>/NNNNNN.bin             KITTI velodyne 形式 float32 x y z intensity（センサ座標）
+    poses/<cam>_kitti.txt                 左カメラ、KITTI odometry 形式（T_c0_ck, 3x4）
+    poses/body_tum.txt, <sensor>_tum.txt  TUM 形式（世界 ENU, t tx ty tz qx qy qz qw）
+    calib/<cam>_kitti.txt                 P0/P1（P1[0,3] = -fx·基線長）, Tr = LiDAR→左カメラ
+    calib/calib.yaml                      K, 歪み, T_body_camera, T_body_lidar
+    rover_state.csv, metadata.json
 ```
 
 ## サーバ（REST / WebSocket）
@@ -43,15 +80,18 @@ LUNARSIM_TOKEN=xxxx lunarsim serve --host 0.0.0.0   # 外部公開はトーク�
 
 ```python
 from lunarsim.client import LunarSimClient
+
 c = LunarSimClient("http://127.0.0.1:8000", token=None)
 wid = c.create_world("configs/south_pole_lowsun.yaml")["world_id"]
 c.waypoints(wid, [(5, 0), (5, 5)], speed_m_s=0.2)
 c.step(wid, 10.0)
-frame = c.camera(wid, "navcam", fmt="npz", buffers=["depth", "labels"])   # dict of arrays
-scan = c.lidar(wid, "spad_flash")                                         # points (N,4), ring, time, ...
-with c.stream(wid) as s:                                                  # WebSocket
+frame = c.camera(wid, "navcam", fmt="npz", buffers=["depth", "labels"])  # dict of arrays
+scan = c.lidar(wid, "spad_flash")  # points (N,4), ring, time, ...
+with c.stream(wid) as s:  # WebSocket
     s.send(type="subscribe", lidars=["spad_flash"])
-    s.receive(); s.step(0.5); print(s.receive()["data"]["points"].shape)
+    s.receive()
+    s.step(0.5)
+    print(s.receive()["data"]["points"].shape)
 ```
 
 | メソッド | パス | 内容 |
@@ -59,14 +99,15 @@ with c.stream(wid) as s:                                                  # WebS
 | GET | `/health`, `/version` | 死活・バージョン（認証不要） |
 | POST | `/worlds` | `{"config": {...}}` または `{"config_yaml": "..."}`, `seed` → `world_id` |
 | GET / DELETE | `/worlds/{id}` | メタデータ + 状態 / 削除 |
-| GET | `/worlds/{id}/heightmap?format=npy\|png16&layer=near\|far` | 高さマップ（幾何はヘッダ） |
+| GET | `/worlds/{id}/heightmap?format=npy\|png16\|f32&layer=near\|far&max_size=N` | 高さマップ（幾何はヘッダ） |
 | GET | `/worlds/{id}/craters`, `/rocks` | ground truth |
 | PUT | `/worlds/{id}/sun` | `{"azimuth_deg","elevation_deg"}` または `{"utc"}` |
 | PUT | `/worlds/{id}/lights/{name}` | `{"on": bool}` |
 | POST | `/worlds/{id}/rover/cmd`, `/rover/waypoints` | 速度指令 / ウェイポイント |
 | POST | `/worlds/{id}/step` | `{"dt_s"}`（決定論的）→ 状態 |
 | GET | `/worlds/{id}/sensors/camera/{name}?format=png\|png16\|npz&buffers=depth,labels&eye=left\|right` | 画像 + GT |
-| GET | `/worlds/{id}/sensors/lidar/{name}?format=npz\|ply\|pcd\|json` | 点群（JSON は小規模のみ） |
+| GET | `/worlds/{id}/sensors/lidar/{name}?format=npz\|ply\|pcd\|json\|bin` | 点群（JSON は小規模のみ） |
+| GET | `/viewer/` | ブラウザビューア（静的ファイル、`/` はここへリダイレクト） |
 | WS | `/ws/{id}` | `cmd` / `waypoints` / `step` / `subscribe` / `run` / `stop` → 状態 JSON + センサ npz（バイナリ） |
 
 重い処理はワーカースレッドで実行（World ごとにロック）するため、描画中もイベントループは応答します（デモで `/health` 最大 14 ms）。

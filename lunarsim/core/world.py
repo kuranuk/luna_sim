@@ -186,6 +186,29 @@ class World:
         self.version += 1
         return self.sun
 
+    def reset_dynamic(self) -> None:
+        """Return time, rover, sun, lights and the near patch to their configured initial state.
+
+        Terrain is not regenerated (it is fully determined by the config), so repeated runs
+        after a reset are identical to runs on a freshly built world.
+        """
+        self.time_s = 0.0
+        self.follower = None
+        self.sun = self._sun_from_config()
+        self.light_on = {lt.name: lt.enabled for lt in self.config.lights}
+        nr = self.config.terrain.near
+        if self._two_layer is not None:
+            hm = self._two_layer.near.heightmap
+            cx = 0.5 * (hm.extent[0] + hm.extent[1])
+            cy = 0.5 * (hm.extent[2] + hm.extent[3])
+            r = nr.resolution_m
+            if abs(cx - nr.center_x_m) > r or abs(cy - nr.center_y_m) > r:
+                self.recenter_near(nr.center_x_m, nr.center_y_m)
+        rc = self.config.rover
+        self.rover.odometer_m = 0.0
+        self.rover.reset(rc.x_m, rc.y_m, math.radians(rc.yaw_deg))
+        self.version += 1
+
     # ------------------------------------------------------------------ rover / time
     def set_rover_command(self, v: float, omega: float = 0.0, steer: float = 0.0) -> None:
         """Velocity command: v [m/s], yaw rate ω [rad/s] (skid-steer) or steer [rad].

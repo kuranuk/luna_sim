@@ -78,4 +78,4 @@ class LightSwitch(_Body):
 
 
 CameraFormat = Literal["png", "png16", "npz"]
-LidarFormat = Literal["npz", "ply", "pcd", "json"]
+LidarFormat = Literal["npz", "ply", "pcd", "json", "bin"]

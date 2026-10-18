@@ -41,6 +41,9 @@ version = { attr = "lunarsim.version.__version__" }
 [tool.setuptools.packages.find]
 include = ["lunarsim*"]
 
+[tool.setuptools.package-data]
+"lunarsim.viewer" = ["static/*.html", "static/*.js", "static/*.css", "static/vendor/*"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 markers = [
