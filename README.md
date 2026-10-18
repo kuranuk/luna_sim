@@ -31,9 +31,10 @@ python scripts/demo_phase1.py
 
 ```python
 from lunarsim.core.world import World
+
 w = World.from_yaml("configs/mare_plain.yaml", seed=1)
-hm = w.heightmap               # z[i, j]（i: 南→北, j: 西→東）, resolution [m]
-hm.height_at(1.5, -3.0)        # 双一次補間の標高 [m]
+hm = w.heightmap  # z[i, j]（i: 南→北, j: 西→東）, resolution [m]
+hm.height_at(1.5, -3.0)  # 双一次補間の標高 [m]
 hm.slope(), hm.normals()
 ```
 
