@@ -21,7 +21,9 @@ dependencies = [
 fast = ["numba>=0.59"]
 spice = ["spiceypy>=6.0"]
 dem = ["tifffile>=2023.1"]
+server = ["fastapi>=0.110", "uvicorn>=0.27", "websockets>=12.0"]
 dev = [
+    "httpx>=0.27",  # FastAPI TestClient only (pulls certifi, MPL-2.0: dev-only)
     "pytest>=7.4",
     "hypothesis>=6.80",
     "ruff>=0.5",

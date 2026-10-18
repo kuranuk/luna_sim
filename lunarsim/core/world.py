@@ -32,7 +32,7 @@ from lunarsim.core.raycast.heightfield import HeightfieldCaster
 from lunarsim.core.raycast.layered import LayeredCaster
 from lunarsim.core.render import RenderBuffers, render_rays
 from lunarsim.core.rng import RngFactory
-from lunarsim.core.rover import Rover, RoverStatus
+from lunarsim.core.rover import Rover, RoverStatus, WaypointFollower
 from lunarsim.core.sensors.camera import CameraModel
 from lunarsim.core.sensors.camera_noise import SensorImage, expose
 from lunarsim.core.sensors.lidar import LidarScan, SensorMotion, render_lidar
@@ -87,6 +87,9 @@ class World:
         self.light_on: dict[str, bool] = {lt.name: lt.enabled for lt in config.lights}
         self.time_s = 0.0
         self.rover = Rover(config.rover, self._heights)
+        self.follower: WaypointFollower | None = None
+        # Incremented on every change that can alter sensor output (cache key for servers).
+        self.version = 0
 
     # ------------------------------------------------------------------ construction
     @classmethod
@@ -141,6 +144,8 @@ class World:
             raise RuntimeError("recenter_near requires terrain.near.enabled")
         self._two_layer.recenter(x, y)
         self._build_caster()
+        if hasattr(self, "version"):
+            self.version += 1
 
     def _heights(
         self, x: npt.NDArray[np.float64], y: npt.NDArray[np.float64]
@@ -168,6 +173,7 @@ class World:
         """Set the sun direction directly."""
         s = self.config.sun
         self.sun = sun_manual(azimuth_deg, elevation_deg, s.distance_au, s.irradiance_1au_w_m2)
+        self.version += 1
         return self.sun
 
     def set_sun_utc(self, utc: datetime | str) -> SunState:
@@ -177,18 +183,47 @@ class World:
         self.sun = sun_astronomical(
             site.latitude_deg, site.longitude_deg, t, self.config.sun.irradiance_1au_w_m2
         )
+        self.version += 1
         return self.sun
 
     # ------------------------------------------------------------------ rover / time
     def set_rover_command(self, v: float, omega: float = 0.0, steer: float = 0.0) -> None:
-        """Velocity command: v [m/s], yaw rate ω [rad/s] (skid-steer) or steer [rad]."""
+        """Velocity command: v [m/s], yaw rate ω [rad/s] (skid-steer) or steer [rad].
+
+        Cancels any active waypoint following.
+        """
+        self.follower = None
         self.rover.set_command(v, omega, steer)
 
-    def step(self, dt: float) -> RoverStatus:
-        """Advance simulation time by ``dt`` [s] (deterministic)."""
-        status = self.rover.step(dt)
+    def set_waypoints(
+        self, waypoints: list[tuple[float, float]], speed_m_s: float, tolerance_m: float = 0.3
+    ) -> None:
+        """Follow waypoints (world ENU [m]) at ``speed_m_s``; replaces velocity commands."""
+        pts = [(float(p[0]), float(p[1])) for p in waypoints]
+        self.follower = WaypointFollower(pts, speed_m_s, tolerance_m)
+
+    def step(self, dt: float, control_period_s: float = 0.1) -> RoverStatus:
+        """Advance simulation time by ``dt`` [s] (deterministic).
+
+        With waypoints active, the command is updated every ``control_period_s``.
+        """
+        if dt < 0.0:
+            raise ValueError("dt must be non-negative")
+        status = self.rover.status
+        remaining = dt
+        while remaining > 1e-12:
+            h = min(remaining, control_period_s) if self.follower is not None else remaining
+            if self.follower is not None:
+                r = self.rover
+                v, w, st = self.follower.command(
+                    r.x, r.y, r.yaw, self.config.rover.kinematics, self.config.rover.wheelbase_m
+                )
+                r.set_command(v, w, st)
+            status = self.rover.step(h)
+            remaining -= h
+            self._follow_rover()
         self.time_s += dt
-        self._follow_rover()
+        self.version += 1
         return status
 
     def _follow_rover(self) -> None:
@@ -235,6 +270,7 @@ class World:
         if name not in self.lights:
             raise KeyError(name)
         self.light_on[name] = bool(on)
+        self.version += 1
 
     def active_lights(self) -> list[LightState]:
         """Lights that are on, placed at their rover mounts."""
@@ -323,6 +359,46 @@ class World:
     def config_hash(self) -> str:
         """SHA-256 of the canonical config (identifies the world reproducibly)."""
         return config_hash(self.config)
+
+    def state(self) -> dict[str, object]:
+        """JSON-serialisable dynamic state (time, rover pose and status, sun)."""
+        r = self.rover
+        c = r.contact
+        st = r.status
+        return {
+            "time_s": self.time_s,
+            "version": self.version,
+            "rover": {
+                "position_m": [float(v) for v in r.pose.t],
+                "quaternion_wxyz": [float(v) for v in r.pose.quat()],
+                "roll_deg": math.degrees(c.roll),
+                "pitch_deg": math.degrees(c.pitch),
+                "yaw_deg": math.degrees(r.yaw),
+                "ground_track_m": [r.x, r.y],
+                "odometer_m": r.odometer_m,
+                "slip": st.slip,
+                "body_velocity_m_s": list(st.body_velocity),
+                "yaw_rate_rad_s": st.yaw_rate,
+                "slope_deg": st.slope_deg,
+                "warnings": list(st.warnings),
+                "command": {
+                    "v_m_s": r.command.v,
+                    "omega_rad_s": r.command.omega,
+                    "steer_rad": r.command.steer,
+                },
+                "waypoints_remaining": (
+                    0
+                    if self.follower is None
+                    else len(self.follower.waypoints) - self.follower.index
+                ),
+            },
+            "sun": {
+                "azimuth_deg": self.sun.azimuth_deg,
+                "elevation_deg": self.sun.elevation_deg,
+                "irradiance_w_m2": self.sun.irradiance,
+            },
+            "lights": dict(self.light_on),
+        }
 
     def metadata(self) -> dict[str, object]:
         """JSON-serialisable summary."""

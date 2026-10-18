@@ -28,6 +28,8 @@ python scripts/demo_phase2.py               # out/phase2/ にクレーター・�
 python scripts/demo_phase3.py               # out/phase3/ に南極・低太陽のカメラ画像
 python scripts/demo_phase4.py               # out/phase4/ に LiDAR 点群（PLY/PCD）と画像
 python scripts/demo_phase5.py               # out/phase5/ にローバー走行・ステレオ・ライト
+python scripts/demo_phase6.py               # out/phase6/ にサーバ + クライアント + WS 走行
+lunarsim serve                              # API サーバ（127.0.0.1:8000, /docs）
 
 # 依存の更新（ネットあり）
 scripts/update_lock.sh                      # requirements*.in -> *.lock
@@ -120,6 +122,19 @@ fractal (`terrain/fractal`) → tilt → craters (`terrain/craters/{count,size,p
   光学座標は `R_BODY_FROM_CAMERA` で変換。ステレオは右カメラ = 左カメラの画像 x 方向に基線長だけずらす。
 - `World.step(dt)` で時間を進める。2 層地形では近傍パッチがローバーに追従して再生成される（パッチ寸法の 1/4 以上離れたら）。
 - 乱数: ステレオ右カメラは `sensor/camera/{name}/right/frame/{index:06d}`。
+
+## API（`lunarsim/api`, `lunarsim/client`）
+
+- API 層は薄いラッパ: リクエスト検証 → `World` のメソッド呼び出し → シリアライズ（`lunarsim/io/bundle.py`）のみ。
+  物理・幾何ロジックを書かない。重い処理は `run_in_threadpool` + World ごとの `threading.Lock`。
+- 既定は 127.0.0.1。非ループバックへのバインドはトークン必須（`ServerSettings.check_exposure`）。
+  `/health` と `/version` 以外は `Authorization: Bearer` を検査（WS は `?token=` も可）。
+- 描画キャッシュのキーは `(センサ, 目, frame_index, World.version)`。状態を変える操作は `World.version` を増やすこと。
+- クライアントは標準ライブラリ `urllib`（REST）+ `websockets`（WS）。httpx は dev（TestClient）専用
+  （certifi = MPL-2.0 をランタイムに入れないため）。npz は `allow_pickle=False` で読む。
+- 依存の版: fastapi 0.141.1（0.142 以降は opentelemetry-api が必須依存になるため）、starlette 1.7.0 /
+  websockets 16.1.1（Python 3.10 対応の最終版）。lock にテレメトリ系が無いことをテストで検査。
+- ROS 2 は `lunarsim/bridge/base.py` のインターフェースのみ（未実装）。
 
 ## 作業の進め方
 

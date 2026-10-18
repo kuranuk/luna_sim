@@ -7,3 +7,8 @@ pydantic==2.11.9
 pyyaml==6.0.2
 pillow==11.3.0
 numba==0.61.2
+# Server extra (closed networks get the full lock).
+fastapi==0.141.1  # last release without an opentelemetry-api dependency
+starlette==1.7.0  # last release supporting Python 3.10
+uvicorn==0.54.0
+websockets==16.1.1  # last release supporting Python 3.10

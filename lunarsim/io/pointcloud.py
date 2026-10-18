@@ -9,7 +9,7 @@ from typing import Any
 import numpy as np
 import numpy.typing as npt
 
-__all__ = ["read_pcd", "read_ply", "write_pcd", "write_ply"]
+__all__ = ["pcd_bytes", "ply_bytes", "read_pcd", "read_ply", "write_pcd", "write_ply"]
 
 _PLY_TYPES: dict[np.dtype[Any], str] = {
     np.dtype("float32"): "float",
@@ -35,16 +35,19 @@ def _structured(fields: Mapping[str, npt.ArrayLike]) -> npt.NDArray[np.void]:
     return out
 
 
-def write_ply(path: str | Path, fields: Mapping[str, npt.ArrayLike]) -> None:
-    """Write a binary little-endian PLY with one vertex element of the given fields."""
+def ply_bytes(fields: Mapping[str, npt.ArrayLike]) -> bytes:
+    """Binary little-endian PLY (one vertex element with the given fields)."""
     data = _structured(fields)
     header = ["ply", "format binary_little_endian 1.0", f"element vertex {data.shape[0]}"]
     for name in data.dtype.names or ():
         header.append(f"property {_PLY_TYPES[np.dtype(data.dtype[name]).newbyteorder('=')]} {name}")
     header.append("end_header")
-    with Path(path).open("wb") as f:
-        f.write(("\n".join(header) + "\n").encode("ascii"))
-        f.write(data.tobytes())
+    return ("\n".join(header) + "\n").encode("ascii") + data.tobytes()
+
+
+def write_ply(path: str | Path, fields: Mapping[str, npt.ArrayLike]) -> None:
+    """Write a binary little-endian PLY with one vertex element of the given fields."""
+    Path(path).write_bytes(ply_bytes(fields))
 
 
 def read_ply(path: str | Path) -> npt.NDArray[np.void]:
@@ -63,8 +66,8 @@ def read_ply(path: str | Path) -> npt.NDArray[np.void]:
     return np.frombuffer(raw[end:], dtype=np.dtype(props), count=n)
 
 
-def write_pcd(path: str | Path, fields: Mapping[str, npt.ArrayLike]) -> None:
-    """Write a binary PCD v0.7 file (unorganised)."""
+def pcd_bytes(fields: Mapping[str, npt.ArrayLike]) -> bytes:
+    """Binary PCD v0.7 (unorganised)."""
     data = _structured(fields)
     names = list(data.dtype.names or ())
     sizes = [str(data.dtype[k].itemsize) for k in names]
@@ -83,9 +86,12 @@ def write_pcd(path: str | Path, fields: Mapping[str, npt.ArrayLike]) -> None:
         f"POINTS {n}",
         "DATA binary",
     ]
-    with Path(path).open("wb") as f:
-        f.write(("\n".join(header) + "\n").encode("ascii"))
-        f.write(data.tobytes())
+    return ("\n".join(header) + "\n").encode("ascii") + data.tobytes()
+
+
+def write_pcd(path: str | Path, fields: Mapping[str, npt.ArrayLike]) -> None:
+    """Write a binary PCD v0.7 file (unorganised)."""
+    Path(path).write_bytes(pcd_bytes(fields))
 
 
 def read_pcd(path: str | Path) -> npt.NDArray[np.void]:

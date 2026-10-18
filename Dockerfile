@@ -17,4 +17,6 @@ RUN if [ -d /tmp/wheelhouse ]; then \
 RUN useradd --create-home lunarsim
 USER lunarsim
 ENTRYPOINT ["lunarsim"]
-CMD ["--help"]
+# Serve on all interfaces inside the container; a token is mandatory for non-loopback binds:
+#   docker run -e LUNARSIM_TOKEN=<secret> -p 127.0.0.1:8000:8000 <image>
+CMD ["serve", "--host", "0.0.0.0", "--port", "8000"]

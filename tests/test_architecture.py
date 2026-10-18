@@ -35,3 +35,20 @@ def test_no_global_numpy_random_or_pickle_in_sources() -> None:
             if needle in text:
                 offenders.append(f"{p.relative_to(ROOT)}: {needle}")
     assert offenders == []
+
+
+def test_client_uses_no_third_party_http_stack() -> None:
+    code = (
+        "import sys, lunarsim.client;"
+        "print(','.join(m for m in ('httpx','requests','urllib3','fastapi') if m in sys.modules))"
+    )
+    out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True)
+    assert out.stdout.strip() == ""
+
+
+def test_locks_contain_no_telemetry_packages() -> None:
+    banned = ("opentelemetry", "sentry", "datadog", "posthog", "segment", "mixpanel")
+    for lock in ("requirements.lock", "requirements-dev.lock"):
+        text = (ROOT / lock).read_text(encoding="utf-8").lower()
+        for name in banned:
+            assert name not in text, f"{name} found in {lock}"

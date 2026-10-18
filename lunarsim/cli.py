@@ -41,6 +41,27 @@ def _cmd_gen_world(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_serve(args: argparse.Namespace) -> int:
+    try:
+        import uvicorn
+
+        from lunarsim.api import ServerSettings, create_app
+    except ImportError as exc:  # pragma: no cover
+        print(f"server dependencies missing ({exc}); install the 'server' extra")
+        return 2
+    settings = ServerSettings.from_env(
+        host=args.host, port=args.port, token=args.token, allow_insecure=args.allow_insecure,
+        max_worlds=args.max_worlds,
+    )  # fmt: skip
+    try:
+        settings.check_exposure()
+    except ValueError as exc:
+        print(f"error: {exc}")
+        return 2
+    uvicorn.run(create_app(settings), host=settings.host, port=settings.port, log_level="info")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     """CLI main."""
     parser = argparse.ArgumentParser(prog="lunarsim")
@@ -50,6 +71,14 @@ def main(argv: list[str] | None = None) -> int:
     g.add_argument("--seed", type=int, default=None, help="override seed")
     g.add_argument("--out", default="out/world", help="output directory")
     g.set_defaults(func=_cmd_gen_world)
+    sv = sub.add_parser("serve", help="run the REST/WebSocket server")
+    sv.add_argument("--host", default=None, help="bind address (default 127.0.0.1)")
+    sv.add_argument("--port", type=int, default=None)
+    sv.add_argument("--token", default=None, help="API token (or env LUNARSIM_TOKEN)")
+    sv.add_argument("--allow-insecure", action="store_true",
+                    help="allow a non-loopback bind without a token")  # fmt: skip
+    sv.add_argument("--max-worlds", type=int, default=None)
+    sv.set_defaults(func=_cmd_serve)
     args = parser.parse_args(argv)
     return int(args.func(args))
 

@@ -16,6 +16,9 @@ from PIL import Image
 from PIL.PngImagePlugin import PngInfo
 
 __all__ = [
+    "encode_npy",
+    "encode_png8",
+    "encode_png16",
     "load_npy",
     "read_png16",
     "save_npy",
@@ -97,3 +100,45 @@ def write_uint16_png(path: str | Path, image: npt.ArrayLike) -> None:
     if a.min() < 0 or a.max() > 65535:
         raise ValueError("values must fit in uint16")
     Image.fromarray(np.ascontiguousarray(a.astype(np.uint16))).save(Path(path))
+
+
+def encode_npy(array: npt.ArrayLike) -> bytes:
+    """``.npy`` bytes of an array (no pickled objects)."""
+    import io
+
+    buf = io.BytesIO()
+    np.save(buf, np.asarray(array), allow_pickle=False)
+    return buf.getvalue()
+
+
+def encode_png16(
+    values: npt.ArrayLike, *, flip_north_up: bool = True, extra_meta: dict[str, Any] | None = None
+) -> tuple[bytes, dict[str, Any]]:
+    """16-bit PNG bytes (+ metadata, also embedded as text chunk) of a float raster."""
+    import io
+
+    v = np.asarray(values, dtype=np.float64)
+    lo, hi = float(np.nanmin(v)), float(np.nanmax(v))
+    scale = (hi - lo) / 65535.0 if hi > lo else 1.0
+    q = np.clip(np.rint((v - lo) / scale), 0, 65535).astype(np.uint16)
+    if flip_north_up:
+        q = q[::-1]
+    meta: dict[str, Any] = {"offset": lo, "scale": scale, "north_up": flip_north_up}
+    meta.update(extra_meta or {})
+    info = PngInfo()
+    info.add_text(_META_KEY, json.dumps(meta, sort_keys=True))
+    buf = io.BytesIO()
+    Image.fromarray(np.ascontiguousarray(q)).save(buf, format="PNG", pnginfo=info)
+    return buf.getvalue(), meta
+
+
+def encode_png8(image: npt.ArrayLike) -> bytes:
+    """8-bit grayscale/RGB PNG bytes of an image in [0, 1] (rows as given)."""
+    import io
+
+    a = np.clip(np.asarray(image, dtype=np.float64), 0.0, 1.0)
+    buf = io.BytesIO()
+    Image.fromarray(np.ascontiguousarray(np.rint(a * 255.0).astype(np.uint8))).save(
+        buf, format="PNG"
+    )
+    return buf.getvalue()
