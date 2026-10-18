@@ -38,3 +38,15 @@ cameras:
   - name: navcam
     intrinsics: {width: 640, height: 480, hfov_deg: 70.0}
     sensor: {auto_exposure: true, ae_percentile: 99.5, ae_target_fraction: 0.8, bits: 12}
+lidars:
+  # SPAD flash LiDAR (primary). Generic sample parameters, see LidarSpadConfig.
+  - name: spad_flash
+    pattern: {kind: flash, flash_width: 160, flash_height: 120, flash_hfov_deg: 60.0, flash_vfov_deg: 45.0}
+    noise:
+      model: spad
+      range_max_m: 100.0
+      spad: {pulse_energy_j: 1.0e-6, filter_bandwidth_nm: 1.0, pulses_per_frame: 1000}
+  # Rotating 32-beam LiDAR with the simple Gaussian model (for comparison).
+  - name: spin32
+    pattern: {kind: spinning, channels: 32, vertical_min_deg: -25.0, vertical_max_deg: 15.0, horizontal_resolution_deg: 0.2}
+    noise: {model: gaussian, range_max_m: 100.0}

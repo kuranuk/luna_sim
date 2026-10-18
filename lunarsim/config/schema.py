@@ -27,6 +27,10 @@ __all__ = [
     "EjectaRockConfig",
     "FractalConfig",
     "HapkeConfig",
+    "LidarConfig",
+    "LidarNoiseConfig",
+    "LidarPatternConfig",
+    "LidarSpadConfig",
     "LunarLambertConfig",
     "NearPatchConfig",
     "ReflectanceConfig",
@@ -446,6 +450,140 @@ class CameraConfig(_Model):
     sensor: CameraSensorConfig = CameraSensorConfig()
 
 
+class LidarPatternConfig(_Model):
+    """Scan pattern. All defaults are generic sample values (no specific device).
+
+    * ``spinning``: rotating multi-beam. Channel elevations from ``vertical_angles_deg``
+      or ``channels`` evenly spaced in [vertical_min_deg, vertical_max_deg]; columns
+      every ``horizontal_resolution_deg``, fired counter-clockwise (seen from above)
+      starting at azimuth -180° (behind) during one revolution of ``1/rotation_hz``.
+    * ``rosette``: non-repetitive rosette of two counter-rotating Risley prisms;
+      deflection = a (cos 2π f1 t, sin 2π f1 t) + a (cos 2π f2 t, -sin 2π f2 t),
+      a = fov/4, so the circular field of view has full angle ``rosette_fov_deg``.
+    * ``flash``: global-shutter grid ``flash_width`` x ``flash_height`` over
+      ``flash_hfov_deg`` x ``flash_vfov_deg`` (pinhole-like, all points at t = 0).
+    """
+
+    kind: Literal["spinning", "rosette", "flash"] = "flash"
+    channels: int = Field(32, ge=1, le=512)
+    vertical_min_deg: float = Field(-25.0, ge=-90.0, le=90.0)
+    vertical_max_deg: float = Field(15.0, ge=-90.0, le=90.0)
+    vertical_angles_deg: list[float] | None = None
+    horizontal_resolution_deg: float = Field(0.2, gt=0.0, le=10.0)
+    rotation_hz: PositiveFloat = 10.0
+    rosette_fov_deg: float = Field(70.0, gt=0.0, lt=180.0)
+    rosette_points: int = Field(10000, ge=1)
+    rosette_period_s: PositiveFloat = 0.1
+    rosette_f1_hz: PositiveFloat = 7294.0  # sample values; ratio chosen non-commensurate
+    rosette_f2_hz: PositiveFloat = 4664.0
+    flash_width: int = Field(160, ge=1)
+    flash_height: int = Field(120, ge=1)
+    flash_hfov_deg: float = Field(60.0, gt=0.0, lt=170.0)
+    flash_vfov_deg: float = Field(45.0, gt=0.0, lt=170.0)
+
+    @model_validator(mode="after")
+    def _check(self) -> LidarPatternConfig:
+        if self.vertical_angles_deg is not None and not self.vertical_angles_deg:
+            raise ValueError("vertical_angles_deg must not be empty")
+        if self.vertical_max_deg < self.vertical_min_deg:
+            raise ValueError("vertical_max_deg must be >= vertical_min_deg")
+        return self
+
+
+class LidarSpadConfig(_Model):
+    """Photon-counting SPAD flash-LiDAR model (used when ``noise.model == "spad"``).
+
+    Generic sample values, not a specific device. Per pixel and laser cycle:
+
+    * signal photons ``n_s = E_pix ρ cosθ A_rx τ_rx / (π r²) · λ/(h c) · PDE`` with the
+      pulse energy flood-illuminating the field of view uniformly in solid angle
+      (``E_pix = E_pulse τ_tx Ω_pix / Ω_fov``) - lidar equation for an extended
+      Lambertian target filling the pixel field of view;
+    * background rate ``Φ = L_bg A_rx Ω_pix τ_rx λ/(h c) PDE + DCR`` with the sunlit
+      surface radiance ``L_bg = ρ F_λ Δλ cos(i_sun) / π`` (0 in shadow and on sky);
+    * ``pulses_per_frame`` cycles accumulated in a histogram of ``bin_width_s`` bins,
+      with multi-event (dead time) or first-photon detection (``detection_mode``).
+    """
+
+    wavelength_m: PositiveFloat = 905e-9
+    pulse_energy_j: PositiveFloat = 1.0e-6
+    tx_transmission: float = Field(0.9, gt=0.0, le=1.0)
+    rx_aperture_diameter_m: PositiveFloat = 0.01
+    rx_transmission: float = Field(0.8, gt=0.0, le=1.0)
+    photon_detection_efficiency: float = Field(0.2, gt=0.0, le=1.0)  # incl. fill factor
+    filter_bandwidth_nm: PositiveFloat = 1.0
+    # Solar spectral irradiance at the laser wavelength, 1 AU [W m^-2 nm^-1].
+    # TODO(ref): read from the ASTM E490 AM0 spectrum at the chosen wavelength.
+    solar_spectral_irradiance_w_m2_nm: PositiveFloat = 1.0
+    dark_count_rate_hz: float = Field(1000.0, ge=0.0)
+    pulse_fwhm_s: PositiveFloat = 1.0e-9
+    timing_jitter_s: float = Field(1.0e-10, ge=0.0)
+    bin_width_s: PositiveFloat = 2.5e-10
+    pulses_per_frame: int = Field(1000, ge=1)
+    false_alarm_probability: float = Field(1e-3, gt=0.0, lt=1.0)  # per pixel and frame
+    # "multi_event": the pixel re-arms after a non-paralysable dead time (steady-state
+    # armed probability 1 / (1 + Φ τ_d)); "first_photon": at most one detection per
+    # laser cycle (dead time >= laser period), background pile-up exp(-Φ t).
+    detection_mode: Literal["multi_event", "first_photon"] = "multi_event"
+    dead_time_s: PositiveFloat = 10e-9
+
+
+class LidarNoiseConfig(_Model):
+    """Range noise, detection and intensity model. Generic sample values.
+
+    ``model = "spad"`` uses :class:`LidarSpadConfig` (photon counting, solar background,
+    pile-up, false alarms; flash pattern). ``model = "gaussian"`` is the simple model:
+
+    * Range noise: Gaussian, ``sigma(r) = sqrt(sigma0² + (k r)²)``.
+    * Received signal (monostatic, Lambertian target): ``S = rho cos(theta) / r²``.
+      Detection probability ``p = 1 / (1 + (S / S50)^-gamma)`` with ``S50`` such that
+      a target of reflectance ``rho_ref`` at normal incidence at ``range_max_m`` is
+      detected with p = 0.5.
+    * Surface reflectance ``rho`` at the laser wavelength. TODO(ref): lunar normal
+      albedo at 1064 nm from LOLA (e.g. Lucey et al. 2014); 0.3 is a sample value.
+    """
+
+    model: Literal["spad", "gaussian"] = "spad"
+    spad: LidarSpadConfig = LidarSpadConfig()
+    range_min_m: float = Field(0.3, ge=0.0)
+    range_max_m: PositiveFloat = 100.0
+    sigma0_m: float = Field(0.02, ge=0.0)
+    sigma_per_m: float = Field(1.0e-4, ge=0.0)
+    surface_reflectance: float = Field(0.3, gt=0.0, le=1.0)
+    rock_reflectance: float | None = Field(None, gt=0.0, le=1.0)  # None: same as surface
+    reference_reflectance: float = Field(0.1, gt=0.0, le=1.0)
+    detection_steepness: PositiveFloat = 4.0
+    # Beam divergence: full angle [deg] and number of sub-rays averaged per beam.
+    beam_divergence_deg: float = Field(0.15, ge=0.0, le=5.0)
+    subrays: int = Field(1, ge=1, le=64)
+    subray_combine: Literal["mean", "nearest"] = "mean"
+    intensity_mode: Literal["reflectivity", "raw"] = "reflectivity"
+    intensity_sigma: float = Field(0.01, ge=0.0)  # on the 0..1 scale before quantisation
+
+    @model_validator(mode="after")
+    def _check(self) -> LidarNoiseConfig:
+        if self.range_max_m <= self.range_min_m:
+            raise ValueError("range_max_m must be > range_min_m")
+        return self
+
+
+class LidarConfig(_Model):
+    """A LiDAR (sensor frame FLU; extrinsics on the rover come in Phase 5).
+
+    Default: SPAD flash LiDAR. The SPAD model requires the flash pattern.
+    """
+
+    name: str = "lidar0"
+    pattern: LidarPatternConfig = LidarPatternConfig()
+    noise: LidarNoiseConfig = LidarNoiseConfig()
+
+    @model_validator(mode="after")
+    def _check(self) -> LidarConfig:
+        if self.noise.model == "spad" and self.pattern.kind != "flash":
+            raise ValueError('noise.model "spad" requires pattern.kind "flash"')
+        return self
+
+
 class RenderConfig(_Model):
     """Rendering options."""
 
@@ -464,13 +602,14 @@ class WorldConfig(_Model):
     sun: SunConfig = SunConfig()
     surface: ReflectanceConfig = ReflectanceConfig()
     cameras: list[CameraConfig] = [CameraConfig()]
+    lidars: list[LidarConfig] = [LidarConfig()]
     render: RenderConfig = RenderConfig()
 
     @model_validator(mode="after")
     def _unique_cameras(self) -> WorldConfig:
-        names = [c.name for c in self.cameras]
+        names = [c.name for c in self.cameras] + [s.name for s in self.lidars]
         if len(set(names)) != len(names):
-            raise ValueError("camera names must be unique")
+            raise ValueError("sensor names must be unique")
         return self
 
 

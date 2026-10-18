@@ -15,4 +15,5 @@ class Label(IntEnum):
     CRATER_RIM = 2
     ROCK = 3
     SHADOW = 4
+    NOISE = 254  # false LiDAR return (no surface at that range)
     SKY = 255  # no surface (rendered images only)

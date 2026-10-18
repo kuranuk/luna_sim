@@ -12,7 +12,7 @@ from datetime import datetime
 from pathlib import Path
 
 from lunarsim.config.load import load_config
-from lunarsim.config.schema import CameraConfig, WorldConfig, config_hash
+from lunarsim.config.schema import CameraConfig, LidarConfig, WorldConfig, config_hash
 from lunarsim.core.frames import Pose
 from lunarsim.core.illumination.sun import SunState, sun_astronomical, sun_manual
 from lunarsim.core.raycast.heightfield import HeightfieldCaster
@@ -21,6 +21,7 @@ from lunarsim.core.render import RenderBuffers, render_rays
 from lunarsim.core.rng import RngFactory
 from lunarsim.core.sensors.camera import CameraModel
 from lunarsim.core.sensors.camera_noise import SensorImage, expose
+from lunarsim.core.sensors.lidar import LidarScan, SensorMotion, render_lidar
 from lunarsim.core.terrain import Heightmap, Terrain, build_terrain
 from lunarsim.core.terrain.layers import TwoLayerTerrain
 
@@ -67,6 +68,7 @@ class World:
         self.cameras: dict[str, tuple[CameraConfig, CameraModel]] = {
             c.name: (c, CameraModel.from_config(c.intrinsics)) for c in config.cameras
         }
+        self.lidars: dict[str, LidarConfig] = {s.name: s for s in config.lidars}
 
     # ------------------------------------------------------------------ construction
     @classmethod
@@ -167,6 +169,26 @@ class World:
         rng = self.rngs.generator(f"sensor/camera/{name}/frame/{frame_index:06d}")
         image = expose(buffers.radiance, cfg.sensor, rng, exposure_s)
         return CameraFrame(name, frame_index, T_world_camera, buffers, image)
+
+    def render_lidar(
+        self,
+        name: str,
+        T_world_sensor: Pose,
+        frame_index: int = 0,
+        motion: SensorMotion | None = None,
+    ) -> LidarScan:
+        """Simulate LiDAR ``name`` at pose ``T_world_sensor`` (FLU sensor frame)."""
+        rng = self.rngs.generator(f"sensor/lidar/{name}/frame/{frame_index:06d}")
+        return render_lidar(
+            self.layers,
+            self.caster,
+            self.lidars[name],
+            T_world_sensor,
+            rng,
+            motion,
+            sun=self.sun,
+            shadow_bias_m=self.config.render.shadow_bias_m,
+        )
 
     # ------------------------------------------------------------------ metadata
     @property

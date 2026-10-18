@@ -26,6 +26,7 @@ lunarsim gen-world configs/mare_plain.yaml --seed 1 --out out/world
 python scripts/demo_phase1.py               # out/phase1/ に画像
 python scripts/demo_phase2.py               # out/phase2/ にクレーター・岩石・ラベル・GT
 python scripts/demo_phase3.py               # out/phase3/ に南極・低太陽のカメラ画像
+python scripts/demo_phase4.py               # out/phase4/ に LiDAR 点群（PLY/PCD）と画像
 
 # 依存の更新（ネットあり）
 scripts/update_lock.sh                      # requirements*.in -> *.lock
@@ -95,6 +96,16 @@ fractal (`terrain/fractal`) → tilt → craters (`terrain/craters/{count,size,p
 - 陰影法線 = 格子点の中心差分勾配の双一次補間（滑らか）。影は幾何（三角形）で判定。
 - 放射輝度 [W m⁻² sr⁻¹] = 太陽放射照度 × r(i,e,g)。環境光ゼロ。カメラは帯域割合 `band_fraction` を掛けて電子数へ。
 - 乱数: カメラノイズ `sensor/camera/{name}/frame/{index:06d}`。
+
+## LiDAR
+
+- 主対象は **SPAD フラッシュ LiDAR**（`noise.model: spad`, `pattern.kind: flash`、既定）。光子計数モデルは
+  `core/sensors/spad.py`: ライダー方程式で信号光子数、日照地表（影レイ判定）+ DCR で背景率、
+  複数イベント型（デッドタイム）/最初の光子だけ型、背景ポアソン分布からのしきい値（誤警報確率）、
+  パイルアップによる距離の手前ずれ（補正しない）、誤検出点（`Label.NOISE`, GT は nan）。
+- 回転式・ロゼット型 + 単純ガウスモデル（`noise.model: gaussian`）も残す（SPEC の差し替え要件）。
+- 点はその計測時刻のセンサ座標（FLU）で出力（走行中の歪みは `SensorMotion` で再現）。
+- 乱数: `sensor/lidar/{name}/frame/{index:06d}`。乱数の消費量はヒットの有無に依らず一定。
 
 ## 作業の進め方
 

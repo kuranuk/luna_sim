@@ -144,7 +144,7 @@ luna_sim/
 | 1 | pyproject, lock, CLAUDE.md, 設定スキーマ, rng, frames, Heightmap, フラクタル地形, 法線/斜度, PNG16/npy 出力, ruff/mypy/pytest 基盤, wheelhouse/ライセンス スクリプト | frames 往復誤差、PSD 傾き回帰で β 再現、RMS 斜度、ビット一致。`demo_phase1.py` → `out/` に陰影図・斜度図 |
 | 2 | クレーター（SFD, 配置, 形状, 劣化, 年代順）, 岩石, ラベル, GT 出力（JSON/CSV） | SFD の KS 検定、密度の期待値、形状断面の解析比較、再現性 |
 | 3 | 太陽（手動・簡易天文）, raycast 抽象 + 高さマップ max-mipmap レイキャスタ（numba/numpy）, 2 層地形（Q3）, シャドウ, BRDF（Hapke/Lunar-Lambert）, ピンホール+歪み, センサノイズ。ホライズンマップは不要と判断（numba で影ありカメラ 0.4 s）し見送り。月面曲率（2 km で約 1 m の低下）は Phase 8 | 箱の影長、太陽方向・周期性、投影/逆投影往復、歪み往復、ノイズ統計。南極低太陽シナリオの画像 |
-| 4 | LiDAR（回転/ロゼット/フラッシュ）, ノイズ, 欠測, 強度, ring/time, PLY/PCD | 平面ターゲットで測距誤差統計、検出率、性能計測 |
+| 4 | LiDAR: **主対象は SPAD フラッシュ型**（ユーザー指定）。光子計数・太陽背景光・パイルアップ・デッドタイム・誤検出のモデル。回転/ロゼット + ガウスモデルも維持。ring/time, PLY/PCD, 走行中の歪み | 平面ターゲットで測距誤差統計、検出率、性能計測 |
 | 5 | ローバー運動学・接地・すべり・転倒警告, extrinsics, スポットライト, ステレオ | 接地姿勢の解析比較、運動学積分、ライト照度の逆二乗則 |
 | 6 | FastAPI REST + WS, トークン認証, スレッドプール, Python クライアント | TestClient による API テスト、決定論的 step |
 | 7 | ビューア（Three.js 同梱）, データセット生成（KITTI/TUM/calib） | ヘッドレスで静的ファイル配信確認、データセット形式検証 |

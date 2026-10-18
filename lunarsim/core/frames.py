@@ -19,6 +19,7 @@ Euler angles follow the aerospace ZYX convention: ``R = Rz(yaw) @ Ry(pitch) @ Rx
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 
 import numpy as np
@@ -33,6 +34,7 @@ __all__ = [
     "euler_zyx_from_matrix",
     "matrix_from_euler_zyx",
     "matrix_from_quat",
+    "matrix_from_rotvec",
     "quat_from_matrix",
     "rot_x",
     "rot_y",
@@ -95,6 +97,20 @@ def matrix_from_quat(q: npt.ArrayLike) -> FloatArray:
             [2 * (x * y + z * w), 1 - 2 * (x * x + z * z), 2 * (y * z - x * w)],
             [2 * (x * z - y * w), 2 * (y * z + x * w), 1 - 2 * (x * x + y * y)],
         ]
+    )
+
+
+def matrix_from_rotvec(rotvec: npt.ArrayLike) -> FloatArray:
+    """Rotation matrix from a rotation vector (axis * angle [rad]), Rodrigues' formula."""
+    v = np.asarray(rotvec, dtype=np.float64).reshape(3)
+    theta = float(np.linalg.norm(v))
+    if theta < 1e-12:
+        kx = np.array([[0.0, -v[2], v[1]], [v[2], 0.0, -v[0]], [-v[1], v[0], 0.0]])
+        return np.asarray(np.eye(3) + kx, dtype=np.float64)
+    k = v / theta
+    kx = np.array([[0.0, -k[2], k[1]], [k[2], 0.0, -k[0]], [-k[1], k[0], 0.0]])
+    return np.asarray(
+        np.eye(3) + math.sin(theta) * kx + (1.0 - math.cos(theta)) * (kx @ kx), dtype=np.float64
     )
 
 

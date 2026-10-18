@@ -49,3 +49,22 @@ def test_camera_640x480_with_shadows(backend: str) -> None:
     print(f"\n640x480 camera + shadows, two-layer south pole, {backend}: {dt:.2f} s")
     if backend == "numba":
         assert dt < 1.0
+
+
+@pytest.mark.perf
+@pytest.mark.parametrize("which", ["spad_flash", "spin32"])
+def test_lidar_scan(which: str) -> None:
+    import math
+
+    from lunarsim.config import load_config
+    from lunarsim.core.frames import Pose
+
+    cfg = load_config(ROOT / "configs" / "south_pole_lowsun.yaml")
+    w = World(cfg)
+    pose = Pose.from_euler_zyx(0.0, math.radians(8), 0.0, (0, 0, w.height_at(0, 0) + 1.5))
+    w.render_lidar(which, pose)  # warm-up
+    t0 = time.perf_counter()
+    s = w.render_lidar(which, pose)
+    dt = time.perf_counter() - t0
+    print(f"\nLiDAR {which}: {len(s)} points, {dt:.3f} s")
+    assert dt < 0.2
