@@ -1,9 +1,10 @@
 """CPU ray-cast rendering of terrain radiance and ground-truth buffers.
 
 For every pixel: primary ray -> terrain hit -> shading normal -> sun shadow ray ->
-reflectance model -> radiance [W m^-2 sr^-1] (total solar band; the sensor model
-applies the in-band fraction). No ambient term: the Moon has no atmosphere
-(earthshine and inter-reflection are optional additions in Phase 8).
+reflectance model -> radiance [W m^-2 sr^-1] (in the camera band). No ambient term: the Moon has
+no atmosphere. Optional: penumbrae (solar disc sampling), earthshine (Earth as a weak
+second disc source) and lunar curvature (local horizon), see :class:`SkyLighting`.
+Inter-reflection between terrain facets is not modelled.
 """
 
 from __future__ import annotations
@@ -20,6 +21,7 @@ from lunarsim.core.frames import Pose
 from lunarsim.core.illumination.brdf import reflectance
 from lunarsim.core.illumination.lights import LightState
 from lunarsim.core.illumination.sun import SunState
+from lunarsim.core.illumination.visibility import SkyLighting
 from lunarsim.core.raycast.heightfield import RayHits
 from lunarsim.core.sensors.camera import CameraModel
 from lunarsim.core.terrain.generate import Terrain
@@ -129,10 +131,11 @@ class RenderBuffers:
         range_m: Distance along the ray [m] (``inf`` for sky).
         normals: World ENU shading normals, ``(H, W, 3)`` (0 for sky).
         labels: Terrain labels (``Label.SKY`` for sky).
-        shadow: True where the visible surface receives no direct sunlight
-            (rover lights do not change this mask).
+        shadow: True where less than half of the solar disc is visible from the surface
+            (point sun: no direct sunlight). Rover lights do not change this mask.
         layer: Terrain layer index hit (-1 for sky).
         points: World hit points ``(H, W, 3)`` [m] (nan for sky).
+        sun_fraction: Visible fraction of the solar disc in [0, 1] (0 for sky).
     """
 
     radiance: FloatArray
@@ -143,6 +146,7 @@ class RenderBuffers:
     shadow: npt.NDArray[np.bool_]
     layer: npt.NDArray[np.int64]
     points: FloatArray
+    sun_fraction: FloatArray
 
 
 def _light_radiance(
@@ -181,12 +185,18 @@ def render_rays(
     shadow_bias_m: float,
     sun_band_fraction: float = 1.0,
     lights: Sequence[LightState] = (),
+    sky: SkyLighting | None = None,
 ) -> RenderBuffers:
     """Render the in-band radiance and ground-truth buffers of one camera view.
 
     Sunlight is scaled by ``sun_band_fraction`` (fraction of the solar irradiance in the
-    camera band); each light adds ``r(i, e, g) · I(θ) / d²`` where visible from the light.
+    camera band) and by the visible fraction of the solar disc; earthshine (if
+    ``sky.earthshine_w_m2 > 0``) adds ``r · E_earth · band_fraction · visible fraction``;
+    each light adds ``r(i, e, g) · I(θ) / d²`` where visible from the light.
+    ``sky`` defaults to a point sun without curvature or earthshine.
     """
+    if sky is None:
+        sky = SkyLighting(sun)
     h, w = camera.height, camera.width
     rays_cam = camera.pixel_rays()
     d = T_world_camera.rotate(rays_cam)
@@ -205,25 +215,25 @@ def render_rays(
     normals[m] = surf.normals
     points[m] = surf.points
 
+    sun_frac = np.zeros(n_pix)
     if m.any():
         s = np.broadcast_to(sun.direction, surf.normals.shape)
-        mu0 = surf.normals @ sun.direction
-        # No direct sunlight with the sun below the local horizon plane (the tangent-plane
-        # world has no curvature; distant lower terrain is not modelled).
-        facing = (mu0 > 0.0) & (sun.elevation > 0.0)
-        lit = facing.copy()
-        idx = np.flatnonzero(facing)
-        if idx.size:
-            so = surf.points[idx] + shadow_bias_m * surf.normals[idx]
-            blocked = caster.occluded(so, s[idx])
-            lit[idx[blocked]] = False
+        frac = sky.sun_visibility(caster, surf.points, surf.normals, shadow_bias_m)
         v = -d[m]
         r = reflectance(surface, surf.normals, s, v)
-        rad = np.where(lit, r * sun.irradiance * sun_band_fraction, 0.0)
+        rad = np.where(frac > 0.0, r * sun.irradiance * sun_band_fraction * frac, 0.0)
+        if sky.earthshine_w_m2 > 0.0 and sun.earth_direction is not None:
+            e_frac = sky.earth_visibility(caster, surf.points, surf.normals, shadow_bias_m)
+            e = np.broadcast_to(sun.earth_direction, surf.normals.shape)
+            r_e = reflectance(surface, surf.normals, e, v)
+            rad += np.where(
+                e_frac > 0.0, r_e * sky.earthshine_w_m2 * sun_band_fraction * e_frac, 0.0
+            )
         for light in lights:
             rad += _light_radiance(light, caster, surface, surf, v, shadow_bias_m)
         radiance[m] = rad
-        shadow[m] = ~lit
+        shadow[m] = frac < 0.5
+        sun_frac[m] = frac
 
     rng = np.where(m, hits.t, np.inf)
     z_axis = T_world_camera.R[:, 2]
@@ -237,4 +247,5 @@ def render_rays(
         shadow=shadow.reshape(h, w),
         layer=hits.layer.reshape(h, w),
         points=points.reshape(h, w, 3),
+        sun_fraction=sun_frac.reshape(h, w),
     )

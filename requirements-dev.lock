@@ -34,7 +34,9 @@ ruff==0.17.1
 scipy==1.15.3
 setuptools==84.0.0
 sortedcontainers==2.4.0
+spiceypy==8.3.0
 starlette==1.7.0
+tifffile==2025.5.10
 types-PyYAML==6.0.12.20260906
 typing-inspection==0.4.4
 typing_extensions==4.16.0

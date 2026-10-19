@@ -12,6 +12,7 @@ coordinates ``(x, y) = (X/Z, Y/Z)``::
 
 from __future__ import annotations
 
+import functools
 import math
 from dataclasses import dataclass
 
@@ -109,9 +110,18 @@ class CameraModel:
         return np.asarray(d / np.linalg.norm(d, axis=1, keepdims=True))
 
     def pixel_rays(self) -> FloatArray:
-        """Unit rays (camera frame) for all pixel centres, shape ``(H*W, 3)`` row-major."""
+        """Unit rays (camera frame) for all pixel centres, shape ``(H*W, 3)`` row-major.
+
+        Computed once per model (iterative undistortion) and returned read-only.
+        """
+        return self._pixel_rays
+
+    @functools.cached_property
+    def _pixel_rays(self) -> FloatArray:
         u, v = np.meshgrid(np.arange(self.width, dtype=np.float64), np.arange(self.height))
-        return self.unproject(np.stack([u.ravel(), v.ravel()], axis=1))
+        rays = self.unproject(np.stack([u.ravel(), v.ravel()], axis=1))
+        rays.setflags(write=False)
+        return rays
 
 
 def camera_pose_from_body(

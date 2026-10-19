@@ -217,6 +217,12 @@ class LunarSimClient:
             return dict(json.loads(raw))
         return {fmt: raw, "headers": hdr}
 
+    def imu(self, world_id: str, name: str, since_s: float | None = None) -> dict[str, Any]:
+        """Buffered IMU samples with ``t > since_s`` as arrays (t, gyro, accel, ...)."""
+        params = {} if since_s is None else {"since_s": since_s}
+        data = self._json("GET", f"/worlds/{world_id}/sensors/imu/{name}", **params)
+        return {k: (np.asarray(v) if isinstance(v, list) else v) for k, v in data.items()}
+
     # ------------------------------------------------------------------ websocket
     @contextmanager
     def stream(self, world_id: str) -> Iterator[StreamSession]:

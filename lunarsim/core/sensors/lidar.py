@@ -24,6 +24,7 @@ import numpy.typing as npt
 from lunarsim.config.schema import LidarConfig, LidarNoiseConfig, LidarPatternConfig
 from lunarsim.core.frames import Pose, matrix_from_rotvec
 from lunarsim.core.illumination.sun import SunState
+from lunarsim.core.illumination.visibility import SkyLighting
 from lunarsim.core.raycast.heightfield import RayHits
 from lunarsim.core.render import Caster, sample_surface
 from lunarsim.core.sensors.spad import SpadResult, spad_measure, spad_rates
@@ -277,8 +278,12 @@ def render_lidar(
     motion: SensorMotion | None = None,
     sun: SunState | None = None,
     shadow_bias_m: float = 2e-3,
+    sky: SkyLighting | None = None,
 ) -> LidarScan:
-    """Simulate one LiDAR frame (``sun`` sets the SPAD solar background; None = dark)."""
+    """Simulate one LiDAR frame (``sun`` sets the SPAD solar background; None = dark).
+
+    ``sky`` (optional) adds penumbrae / curvature to the sunlit-background test.
+    """
     pat = scan_pattern(cfg.pattern)
     nz = cfg.noise
     geo = _cast_beams(layers, caster, cfg, pat, T_world_sensor, motion)
@@ -290,15 +295,17 @@ def render_lidar(
         assert pat.solid_angle is not None
         s = nz.spad
         bg = np.zeros(n_beams)
-        if sun is not None and sun.elevation > 0.0:
-            mu0 = geo.normals @ sun.direction
-            idx = np.flatnonzero(geo.any_hit & (mu0 > 0.0))
+        if sun is not None:
+            sk = sky if sky is not None else SkyLighting(sun)
+            idx = np.flatnonzero(geo.any_hit)
             if idx.size:
-                o = geo.points[idx] + shadow_bias_m * geo.normals[idx]
-                lit = ~caster.occluded(o, np.broadcast_to(sun.direction, o.shape))
+                frac = sk.sun_visibility(caster, geo.points[idx], geo.normals[idx], shadow_bias_m)
+                lit = frac > 0.0
+                mu0 = geo.normals[idx] @ sun.direction
                 f_band = s.solar_spectral_irradiance_w_m2_nm * s.filter_bandwidth_nm
                 f_band /= sun.distance_au**2
-                bg[idx[lit]] = rho[idx[lit]] * f_band * mu0[idx[lit]] / math.pi
+                il = idx[lit]
+                bg[il] = rho[il] * f_band * np.maximum(mu0[lit], 0.0) * frac[lit] / math.pi
         r_eff = np.where(geo.any_hit, geo.r_true, np.nan)
         n_s, phi = spad_rates(
             r_eff, geo.cos_inc * geo.hit_fraction, rho, bg, pat.solid_angle,

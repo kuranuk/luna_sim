@@ -69,25 +69,33 @@ def settle(
     lx = cfg.contact_half_length_ratio * cfg.wheel_radius_m
     ly = 0.5 * cfg.wheel_width_m
     fu, fv = np.meshgrid([-lx, 0.0, lx], [-ly, 0.0, ly])
-    foot = np.c_[fu.ravel(), fv.ravel()]  # footprint sample offsets (body x, y)
+    foot = np.stack([fu.ravel(), fv.ravel()], axis=1)  # footprint offsets (body x, y)
+    n_w = len(w)
+    contacts_body = np.zeros((n_w, 3))
+    contacts_body[:, :2] = w
+    samp = (w[:, None, :] + foot[None, :, :]).reshape(-1, 2)
+    samp_body = np.zeros((len(samp), 3))
+    samp_body[:, :2] = samp
     roll = pitch = 0.0
     cy, sy = math.cos(yaw), math.sin(yaw)
     for _ in range(iterations):
         R = matrix_from_euler_zyx(roll, pitch, yaw)
-        contacts_body = np.c_[w, np.full(len(w), 0.0)]
         rel = contacts_body @ R.T  # contact offsets from the contact centre, world
         wx, wy = x + rel[:, 0], y + rel[:, 1]
-        samp = (w[:, None, :] + foot[None, :, :]).reshape(-1, 2)
-        srel = np.c_[samp, np.zeros(len(samp))] @ R.T
-        wz = height(x + srel[:, 0], y + srel[:, 1]).reshape(len(w), -1).max(axis=1)
+        srel = samp_body @ R.T
+        wz = height(x + srel[:, 0], y + srel[:, 1]).reshape(n_w, -1).max(axis=1)
         # Yaw-aligned horizontal coordinates (u forward, v left).
         u = (wx - x) * cy + (wy - y) * sy
         v = -(wx - x) * sy + (wy - y) * cy
-        A = np.c_[np.ones_like(u), u, v]
-        (a, b, c), *_ = np.linalg.lstsq(A, wz, rcond=None)
+        A = np.stack([np.ones_like(u), u, v], axis=1)
+        a, b, c = np.linalg.solve(A.T @ A, A.T @ wz)  # least-squares plane (normal eqs.)
         nrm = math.sqrt(1.0 + b * b + c * c)
-        roll = math.asin(c / nrm)
-        pitch = math.atan2(-b, 1.0)
+        roll_new = math.asin(c / nrm)
+        pitch_new = math.atan2(-b, 1.0)
+        done = abs(roll_new - roll) < 1e-13 and abs(pitch_new - pitch) < 1e-13
+        roll, pitch = roll_new, pitch_new
+        if done:  # converged: further iterations would sample the same points
+            break
     resid = float(np.sqrt(np.mean((A @ np.array([a, b, c]) - wz) ** 2)))
     R = matrix_from_euler_zyx(roll, pitch, yaw)
     origin = np.array([x, y, a]) + cfg.origin_height_m * R[:, 2]
@@ -101,7 +109,7 @@ def settle(
         roll=roll,
         pitch=pitch,
         yaw=yaw,
-        wheel_points=np.c_[wx, wy, wz],
+        wheel_points=np.stack([wx, wy, wz], axis=1),
         slope=math.acos(max(-1.0, min(1.0, R[2, 2]))),
         lateral_margin=lat_lim - tilt_lat,
         longitudinal_margin=lon_lim - tilt_lon,

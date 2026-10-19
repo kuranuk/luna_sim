@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import numpy as np
@@ -25,9 +25,22 @@ from lunarsim.config.schema import (
     WorldConfig,
     config_hash,
 )
-from lunarsim.core.frames import R_BODY_FROM_CAMERA, Pose
+from lunarsim.core.frames import R_BODY_FROM_CAMERA, Pose, enu_to_azel
+from lunarsim.core.illumination.horizon import (
+    IlluminationMap,
+    horizon_map,
+    illumination_map,
+    sun_track,
+)
 from lunarsim.core.illumination.lights import LightState, light_state
-from lunarsim.core.illumination.sun import SunState, sun_astronomical, sun_manual
+from lunarsim.core.illumination.spice import spice_available, sun_spice
+from lunarsim.core.illumination.sun import (
+    SunState,
+    earthshine_irradiance,
+    sun_astronomical,
+    sun_manual,
+)
+from lunarsim.core.illumination.visibility import SkyLighting
 from lunarsim.core.raycast.heightfield import HeightfieldCaster
 from lunarsim.core.raycast.layered import LayeredCaster
 from lunarsim.core.render import RenderBuffers, render_rays
@@ -35,8 +48,10 @@ from lunarsim.core.rng import RngFactory
 from lunarsim.core.rover import Rover, RoverStatus, WaypointFollower
 from lunarsim.core.sensors.camera import CameraModel
 from lunarsim.core.sensors.camera_noise import SensorImage, expose
+from lunarsim.core.sensors.imu import ImuSamples, ImuSimulator
 from lunarsim.core.sensors.lidar import LidarScan, SensorMotion, render_lidar
 from lunarsim.core.terrain import Heightmap, Terrain, build_terrain
+from lunarsim.core.terrain.dem import BaseSurface
 from lunarsim.core.terrain.layers import TwoLayerTerrain
 
 __all__ = ["CameraFrame", "World", "parse_utc"]
@@ -73,10 +88,15 @@ class World:
         self.config = config
         self.rngs = RngFactory(config.seed)
         self._two_layer: TwoLayerTerrain | None = None
+        self.base_surface = BaseSurface.from_config(config.terrain, config.site)
         if config.terrain.near.enabled:
-            self._two_layer = TwoLayerTerrain(config.terrain, self.rngs, workers=workers)
+            self._two_layer = TwoLayerTerrain(
+                config.terrain, self.rngs, workers=workers, base=self.base_surface
+            )
         else:
-            self._single = build_terrain(config.terrain, self.rngs, workers=workers)
+            self._single = build_terrain(
+                config.terrain, self.rngs, workers=workers, base=self.base_surface
+            )
         self._build_caster()
         self.sun: SunState = self._sun_from_config()
         self.cameras: dict[str, tuple[CameraConfig, CameraModel]] = {
@@ -88,6 +108,10 @@ class World:
         self.time_s = 0.0
         self.rover = Rover(config.rover, self._heights)
         self.follower: WaypointFollower | None = None
+        self.imus: dict[str, ImuSimulator] = {
+            m.name: ImuSimulator(m, self.rngs, config.site.latitude_deg) for m in config.imus
+        }
+        self._push_imus()
         # Incremented on every change that can alter sensor output (cache key for servers).
         self.version = 0
 
@@ -110,11 +134,64 @@ class World:
     def _sun_from_config(self) -> SunState:
         s = self.config.sun
         if s.mode == "manual":
-            return sun_manual(s.azimuth_deg, s.elevation_deg, s.distance_au, s.irradiance_1au_w_m2)
-        site = self.config.site
-        return sun_astronomical(
-            site.latitude_deg, site.longitude_deg, parse_utc(s.utc), s.irradiance_1au_w_m2
+            return self._manual_sun(s.azimuth_deg, s.elevation_deg)
+        return self._astronomical_sun(parse_utc(s.utc))
+
+    def _manual_sun(self, azimuth_deg: float, elevation_deg: float) -> SunState:
+        s = self.config.sun
+        return sun_manual(
+            azimuth_deg,
+            elevation_deg,
+            s.distance_au,
+            s.irradiance_1au_w_m2,
+            s.earth_azimuth_deg,
+            s.earth_elevation_deg,
+            s.earth_distance_m,
         )
+
+    @property
+    def ephemeris(self) -> str:
+        """Ephemeris used in astronomical mode: ``"spice"`` or ``"analytic"``."""
+        s = self.config.sun
+        if s.ephemeris == "spice":
+            return "spice"
+        if s.ephemeris == "auto" and spice_available(s.spice_kernels):
+            return "spice"
+        return "analytic"
+
+    def _astronomical_sun(self, utc: datetime) -> SunState:
+        s, site = self.config.sun, self.config.site
+        if self.ephemeris == "spice":
+            return sun_spice(
+                site.latitude_deg,
+                site.longitude_deg,
+                utc,
+                s.spice_kernels,
+                s.spice_frame,
+                s.irradiance_1au_w_m2,
+            )
+        return sun_astronomical(site.latitude_deg, site.longitude_deg, utc, s.irradiance_1au_w_m2)
+
+    @property
+    def sky(self) -> SkyLighting:
+        """Distant light sources with the configured penumbra / curvature / earthshine."""
+        rc, tc = self.config.render, self.config.terrain
+        return SkyLighting(
+            self.sun,
+            penumbra_samples=rc.penumbra_samples,
+            sun_radius_m=rc.sun_radius_m,
+            limb_darkening_u=rc.limb_darkening_u,
+            curvature_radius_m=tc.moon_radius_m if tc.curvature else None,
+            earthshine_w_m2=self.earthshine_w_m2,
+        )
+
+    @property
+    def earthshine_w_m2(self) -> float:
+        """Earthshine irradiance normal to the Earth direction [W/m²] (0 if disabled)."""
+        s = self.config.sun
+        if not s.earthshine:
+            return 0.0
+        return earthshine_irradiance(self.sun, s.earth_geometric_albedo)
 
     # ------------------------------------------------------------------ terrain access
     @property
@@ -170,19 +247,15 @@ class World:
 
     # ------------------------------------------------------------------ sun
     def set_sun_manual(self, azimuth_deg: float, elevation_deg: float) -> SunState:
-        """Set the sun direction directly."""
-        s = self.config.sun
-        self.sun = sun_manual(azimuth_deg, elevation_deg, s.distance_au, s.irradiance_1au_w_m2)
+        """Set the sun direction directly (Earth as configured for manual mode)."""
+        self.sun = self._manual_sun(azimuth_deg, elevation_deg)
         self.version += 1
         return self.sun
 
     def set_sun_utc(self, utc: datetime | str) -> SunState:
-        """Set the sun from the site location and a UTC time (astronomical mode)."""
+        """Set the sun (and Earth) from the site location and a UTC time."""
         t = parse_utc(utc) if isinstance(utc, str) else utc
-        site = self.config.site
-        self.sun = sun_astronomical(
-            site.latitude_deg, site.longitude_deg, t, self.config.sun.irradiance_1au_w_m2
-        )
+        self.sun = self._astronomical_sun(t)
         self.version += 1
         return self.sun
 
@@ -207,7 +280,34 @@ class World:
         rc = self.config.rover
         self.rover.odometer_m = 0.0
         self.rover.reset(rc.x_m, rc.y_m, math.radians(rc.yaw_deg))
+        for imu in self.imus.values():
+            imu.reset()
+        self._push_imus()
         self.version += 1
+
+    def long_term_illumination(
+        self,
+        start: datetime | str,
+        end: datetime | str,
+        step: timedelta,
+        layer: str = "auto",
+        n_azimuth: int = 64,
+        stride: int = 1,
+    ) -> IlluminationMap:
+        """Illumination / PSR statistics over ``[start, end]`` (astronomical Sun at the site).
+
+        ``layer``: ``"near"``, ``"far"`` or ``"auto"`` (far layer if present). The horizon
+        map spans that layer only (terrain beyond it does not block).
+        """
+        t0 = parse_utc(start) if isinstance(start, str) else start
+        t1 = parse_utc(end) if isinstance(end, str) else end
+        far = self.terrain_far
+        terrain = far if (layer in ("auto", "far") and far is not None) else self.terrain
+        if layer == "far" and far is None:
+            raise ValueError("this world has no far layer")
+        hor = horizon_map(terrain.heightmap, n_azimuth, stride, backend=self.config.render.backend)
+        suns = sun_track(self._astronomical_sun, t0, t1, step)
+        return illumination_map(hor, suns, self.config.render.sun_radius_m)
 
     # ------------------------------------------------------------------ rover / time
     def set_rover_command(self, v: float, omega: float = 0.0, steer: float = 0.0) -> None:
@@ -228,26 +328,54 @@ class World:
     def step(self, dt: float, control_period_s: float = 0.1) -> RoverStatus:
         """Advance simulation time by ``dt`` [s] (deterministic).
 
-        With waypoints active, the command is updated every ``control_period_s``.
+        With waypoints active, the command is updated every ``control_period_s`` (starting
+        at the beginning of the call). With IMUs, rover sub-steps end on every IMU sample
+        instant ``k / rate_hz`` where the IMU poses are recorded.
         """
         if dt < 0.0:
             raise ValueError("dt must be non-negative")
         status = self.rover.status
+        t = self.time_s
         remaining = dt
+        ctrl_left = 0.0  # time until the next waypoint-controller update
         while remaining > 1e-12:
-            h = min(remaining, control_period_s) if self.follower is not None else remaining
+            h = remaining
             if self.follower is not None:
-                r = self.rover
-                v, w, st = self.follower.command(
-                    r.x, r.y, r.yaw, self.config.rover.kinematics, self.config.rover.wheelbase_m
-                )
-                r.set_command(v, w, st)
+                if ctrl_left <= 1e-12:
+                    r = self.rover
+                    v, w, st = self.follower.command(
+                        r.x, r.y, r.yaw, self.config.rover.kinematics,
+                        self.config.rover.wheelbase_m,
+                    )  # fmt: skip
+                    r.set_command(v, w, st)
+                    ctrl_left = control_period_s
+                h = min(h, ctrl_left)
+            for imu in self.imus.values():
+                h = min(h, max(imu.next_time - t, 0.0))
             status = self.rover.step(h)
             remaining -= h
+            ctrl_left -= h
+            t += h
+            for imu in self.imus.values():  # snap to the sample instant (no drift)
+                if abs(imu.next_time - t) < 1e-9:
+                    t = imu.next_time
             self._follow_rover()
+            self._push_imus(t)
         self.time_s += dt
         self.version += 1
         return status
+
+    def _push_imus(self, t: float | None = None) -> None:
+        """Record IMU samples whose instant is reached (at ``t``, default current time)."""
+        now = self.time_s if t is None else t
+        for name, imu in self.imus.items():
+            while imu.next_time <= now + 1e-9:
+                cfg = self.config.imus[[m.name for m in self.config.imus].index(name)]
+                imu.push(self.rover.pose @ self.mount_pose(cfg.mount))
+
+    def imu_samples(self, name: str, since_s: float | None = None) -> ImuSamples:
+        """Buffered samples of IMU ``name`` with ``t > since_s`` [s]."""
+        return self.imus[name].samples(since_s)
 
     def _follow_rover(self) -> None:
         """Re-centre the near patch when the rover nears its border (two-layer mode)."""
@@ -325,6 +453,7 @@ class World:
             self.config.render.shadow_bias_m,
             sun_band_fraction=cfg.sensor.band_fraction,
             lights=self.active_lights(),
+            sky=self.sky,
         )
         stream = f"sensor/camera/{name}" + ("/right" if eye == "right" else "")
         rng = self.rngs.generator(f"{stream}/frame/{frame_index:06d}")
@@ -370,6 +499,7 @@ class World:
             motion,
             sun=self.sun,
             shadow_bias_m=self.config.render.shadow_bias_m,
+            sky=self.sky,
         )
 
     # ------------------------------------------------------------------ metadata
@@ -420,7 +550,20 @@ class World:
                 "elevation_deg": self.sun.elevation_deg,
                 "irradiance_w_m2": self.sun.irradiance,
             },
+            "earth": self._earth_state(),
             "lights": dict(self.light_on),
+        }
+
+    def _earth_state(self) -> dict[str, float] | None:
+        e = self.sun.earth_direction
+        if e is None:
+            return None
+        az, el = enu_to_azel(e)
+        return {
+            "azimuth_deg": math.degrees(float(az)),
+            "elevation_deg": math.degrees(float(el)),
+            "distance_m": float(self.sun.earth_distance_m or 0.0),
+            "earthshine_w_m2": self.earthshine_w_m2,
         }
 
     def metadata(self) -> dict[str, object]:
@@ -443,6 +586,7 @@ class World:
                 "irradiance_w_m2": self.sun.irradiance,
             },
             "raycast_backend": self.caster.backend,
+            "ephemeris": self.ephemeris if self.config.sun.mode == "astronomical" else "manual",
             "time_s": self.time_s,
             "rover": {
                 "x_m": self.rover.x,

@@ -11,6 +11,7 @@ Layout (``<output_dir>/``)::
         cameras/<cam>/labels/NNNNNN.png       uint8 semantic labels (left camera)
         cameras/<cam>/shadow/NNNNNN.png       uint8 0/255 shadow mask
         lidars/<lidar>/NNNNNN.bin             float32 x y z intensity (sensor frame, KITTI)
+        imu/<imu>.csv, <imu>_groundtruth.csv  EuRoC-style IMU samples (ns, rad/s, m/s²)
         poses/<cam>_kitti.txt                 left camera, KITTI odometry format
         poses/<sensor>_tum.txt, body_tum.txt  TUM format (world ENU)
         calib/<cam>_kitti.txt, calib.yaml     intrinsics and extrinsics
@@ -96,7 +97,58 @@ def _calibration(world: World, cfg: DatasetConfig) -> dict[str, Any]:
             "range_max_m": lc.noise.range_max_m,
             "T_body_lidar": world.mount_pose(lc.mount).matrix().tolist(),
         }
+    out["imus"] = {}
+    for name in cfg.imus:
+        if name not in world.imus:
+            raise KeyError(f"dataset IMU {name!r} is not defined in the scenario")
+        ic = world.imus[name].cfg
+        out["imus"][name] = {
+            "rate_hz": ic.rate_hz,
+            "T_body_imu": world.mount_pose(ic.mount).matrix().tolist(),
+            "noise": ic.noise.model_dump(),
+            "bandwidth_hz": ic.bandwidth_hz,
+            "gravity_m_s2": ic.gravity_m_s2,
+        }
     return out
+
+
+def _write_imu(out: Path, name: str, rows: list[Any]) -> None:
+    d = out / "imu"
+    d.mkdir(parents=True, exist_ok=True)
+    t = np.concatenate([b.t for b in rows]) if rows else np.zeros(0)
+    cat = {
+        k: np.concatenate([getattr(b, k) for b in rows]) if rows else np.zeros((0, 3))
+        for k in ("gyro", "accel", "gyro_true", "accel_true", "gyro_bias", "accel_bias")
+    }
+    ns = np.rint(t * 1e9).astype(np.int64)
+    hdr = "#timestamp [ns],w_RS_S_x [rad s^-1],w_RS_S_y [rad s^-1],w_RS_S_z [rad s^-1],"
+    hdr += "a_RS_S_x [m s^-2],a_RS_S_y [m s^-2],a_RS_S_z [m s^-2]\n"
+    with (d / f"{name}.csv").open("w") as f:
+        f.write(hdr)
+        for i in range(ns.size):
+            v = np.concatenate([cat["gyro"][i], cat["accel"][i]])
+            f.write(f"{ns[i]}," + ",".join(f"{x:.9g}" for x in v) + "\n")
+    cols = [
+        "w_true_x",
+        "w_true_y",
+        "w_true_z",
+        "a_true_x",
+        "a_true_y",
+        "a_true_z",
+        "bg_x",
+        "bg_y",
+        "bg_z",
+        "ba_x",
+        "ba_y",
+        "ba_z",
+    ]
+    with (d / f"{name}_groundtruth.csv").open("w") as f:
+        f.write("#timestamp [ns]," + ",".join(cols) + "\n")
+        for i in range(ns.size):
+            v = np.concatenate(
+                [cat[k][i] for k in ("gyro_true", "accel_true", "gyro_bias", "accel_bias")]
+            )
+            f.write(f"{ns[i]}," + ",".join(f"{x:.9g}" for x in v) + "\n")
 
 
 def _write_terrain(world: World, root: Path) -> None:
@@ -129,16 +181,27 @@ def _run(world: World, cfg: DatasetConfig, v: SunVariation, out: Path) -> dict[s
     cam_poses: dict[str, list[Pose]] = {c: [] for c in cfg.cameras}
     lidar_poses: dict[str, list[Pose]] = {name: [] for name in cfg.lidars}
     rows: list[dict[str, Any]] = []
+    imu_rows: dict[str, list[Any]] = {name: [world.imu_samples(name)] for name in cfg.imus}
+    imu_last = {name: world.time_s for name in cfg.imus}
     for k in range(n_frames):
         times.append(world.time_s)
         body.append(world.rover.pose)
         st = world.state()["rover"]
         assert isinstance(st, dict)
-        rows.append({"frame": k, "t_s": world.time_s, **{
-            f: st[f] for f in ("roll_deg", "pitch_deg", "yaw_deg", "slope_deg", "slip",
-                               "odometer_m")
-        }, "x_m": st["position_m"][0], "y_m": st["position_m"][1], "z_m": st["position_m"][2],
-            "warnings": ";".join(st["warnings"])})  # fmt: skip
+        rows.append(
+            {
+                "frame": k,
+                "t_s": world.time_s,
+                **{
+                    f: st[f]
+                    for f in ("roll_deg", "pitch_deg", "yaw_deg", "slope_deg", "slip", "odometer_m")
+                },
+                "x_m": st["position_m"][0],
+                "y_m": st["position_m"][1],
+                "z_m": st["position_m"][2],
+                "warnings": ";".join(st["warnings"]),
+            }
+        )
         for name in cfg.cameras:
             cam_cfg, _ = world.cameras[name]
             d = out / "cameras" / name
@@ -173,14 +236,24 @@ def _run(world: World, cfg: DatasetConfig, v: SunVariation, out: Path) -> dict[s
                 elif fmt == "pcd":
                     write_pcd(d / f"{k:06d}.pcd", lidar_fields(scan))
                 else:
-                    np.savez(d / f"{k:06d}.npz", points=scan.points, ring=scan.ring,
-                             time=scan.time, labels=scan.labels,
-                             points_world_gt=scan.points_world_gt)  # fmt: skip
+                    np.savez(
+                        d / f"{k:06d}.npz",
+                        points=scan.points,
+                        ring=scan.ring,
+                        time=scan.time,
+                        labels=scan.labels,
+                        points_world_gt=scan.points_world_gt,
+                    )
         if k < n_frames - 1:
             cmd = _command_at(traj, world.time_s)
             if cmd is not None:
                 world.set_rover_command(*cmd)
             world.step(dt)
+            for name in cfg.imus:
+                batch = world.imu_samples(name, imu_last[name])
+                if len(batch):
+                    imu_rows[name].append(batch)
+                    imu_last[name] = float(batch.t[-1])
 
     (out / "times.txt").write_text("".join(f"{t:.6f}\n" for t in times))
     p = out / "poses"
@@ -191,6 +264,8 @@ def _run(world: World, cfg: DatasetConfig, v: SunVariation, out: Path) -> dict[s
         write_tum(p / f"{name}_tum.txt", times, poses)
     for name, poses in lidar_poses.items():
         write_tum(p / f"{name}_tum.txt", times, poses)
+    for name, batches in imu_rows.items():
+        _write_imu(out, name, batches)
     with (out / "rover_state.csv").open("w", newline="") as f:
         wr = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
         wr.writeheader()

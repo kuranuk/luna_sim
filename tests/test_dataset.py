@@ -20,6 +20,7 @@ SCENARIO = {
         "craters": {"enabled": True, "sfd": {"d_min_m": 0.6, "d_max_m": 6.0}},
     },
     "sun": {"azimuth_deg": 100, "elevation_deg": 10},
+    "imus": [{"name": "imu", "rate_hz": 100.0}],
     "cameras": [
         {"name": "nav", "intrinsics": {"width": 48, "height": 32}, "stereo_baseline_m": 0.3}
     ],
@@ -36,6 +37,7 @@ JOB = {
     "camera_buffers": ["depth", "labels", "shadow"],
     "lidars": ["spad"],
     "lidar_formats": ["bin", "ply"],
+    "imus": ["imu"],
     "variations": [
         {"name": "el05", "azimuth_deg": 100, "elevation_deg": 5},
         {"name": "el30", "azimuth_deg": 100, "elevation_deg": 30},
@@ -137,3 +139,15 @@ def test_schema_validation() -> None:
         DatasetConfig.model_validate({**JOB, "variations": [{"name": "a"}, {"name": "a"}]})
     with pytest.raises(ValueError):
         DatasetConfig.model_validate({**JOB, "variations": [{"name": "a", "azimuth_deg": 3}]})
+
+
+def test_imu_csv(dataset: Path) -> None:
+    rows = np.loadtxt(dataset / "el05/imu/imu.csv", delimiter=",", comments="#")
+    assert rows.shape == (301, 7)  # 3 s at 100 Hz, inclusive
+    assert np.all(np.diff(rows[:, 0]) == 10_000_000)  # ns
+    assert rows[:, 6].mean() == pytest.approx(1.6243, abs=0.05)  # gravity on z (FLU)
+    gt = np.loadtxt(dataset / "el05/imu/imu_groundtruth.csv", delimiter=",", comments="#")
+    assert gt.shape == (301, 13)
+    assert (dataset / "el30/imu/imu.csv").read_text() == (dataset / "el05/imu/imu.csv").read_text()
+    calib = yaml.safe_load((dataset / "el05/calib/calib.yaml").read_text())
+    assert calib["imus"]["imu"]["rate_hz"] == 100.0

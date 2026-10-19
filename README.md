@@ -33,7 +33,21 @@ python scripts/demo_phase4.py   # SPAD フラッシュ LiDAR / 回転式 LiDAR �
 python scripts/demo_phase5.py   # ローバー走行（接地・すべり）、ステレオ、ライト
 python scripts/demo_phase6.py   # サーバ起動 + Python クライアント + WebSocket 走行
 python scripts/demo_phase7.py   # データセット生成（太陽高度 3 条件）+ ビューアのスクリーンショット
+python scripts/demo_phase8.py   # 半影・地球照・曲率・実 DEM・PSR マップ・IMU・SPICE 比較
+python scripts/bench.py         # 性能計測 → out/bench/bench.{json,md}
 ```
+
+## 任意機能（Phase 8）
+
+| 機能 | 設定 / 使い方 | 備考 |
+|---|---|---|
+| 半影（ソフトシャドウ） | `render.penumbra_samples: 16` | 太陽円盤（視半径 0.267°、周辺減光）を決定論的にサンプリング。縁 4 点で判定し、食い違う画素だけ全サンプル。`RenderBuffers.sun_fraction` に可視割合 |
+| 地球照 | `sun.earthshine: true`（手動モードは `earth_azimuth_deg` / `earth_elevation_deg`） | 満地球で約 0.14 W/m²。地球は点光源として影を判定 |
+| 月面曲率 | `terrain.curvature: true` | 高さに −(x²+y²)/(2R) を加え、照明は各点の局所鉛直で判定（太陽高度が負でも遠方が照らされる） |
+| 実 DEM | `terrain.dem: {enabled, path, projection: polar_stereographic\|equirectangular\|local, ...}` | GeoTIFF（`tifffile`、[dem] extra）または `.npy`。DEM が長波長、フラクタル（DEM のナイキスト以下を除去）+ クレーター + 岩が細部。原点 = `site` の緯度経度 |
+| SPICE | `sun.ephemeris: auto\|spice`, `sun.spice_kernels: [naif0012.tls, de440s.bsp, pck00011.tpc]` | `spiceypy`（[spice] extra）。カーネルは手動配置（自動ダウンロードしない）。無ければ簡易モデル（SPICE との差: 太陽 ≤ 0.07°、地球 ≤ 0.11°） |
+| PSR / 長期日照マップ | `lunarsim psr configs/south_pole_lowsun.yaml --days 346.62 --step-hours 2 --stride 4` | ホライズンマップ + 太陽円盤の弓形面積。`mean_sun_fraction`, `psr`, `earth_visible_fraction` を npy/PNG で出力 |
+| IMU | `imus: [{name: imu0, rate_hz: 200}]` → `World.imu_samples()`, `GET /worlds/{id}/sensors/imu/{name}?since_s=`, WS `subscribe: {imus: [...]}`、データセット `imus: [...]`（EuRoC 形式 CSV） | 6 軸。重力 1.6243 m/s²、月の自転、ノイズ・バイアス・ランダムウォーク。ローバーのサブステップを IMU 時刻に合わせる |
 
 ## ブラウザビューア
 
@@ -107,6 +121,7 @@ with c.stream(wid) as s:  # WebSocket
 | POST | `/worlds/{id}/step` | `{"dt_s"}`（決定論的）→ 状態 |
 | GET | `/worlds/{id}/sensors/camera/{name}?format=png\|png16\|npz&buffers=depth,labels&eye=left\|right` | 画像 + GT |
 | GET | `/worlds/{id}/sensors/lidar/{name}?format=npz\|ply\|pcd\|json\|bin` | 点群（JSON は小規模のみ） |
+| GET | `/worlds/{id}/sensors/imu/{name}?since_s=` | IMU サンプル（t, gyro, accel, 真値, バイアス） |
 | GET | `/viewer/` | ブラウザビューア（静的ファイル、`/` はここへリダイレクト） |
 | WS | `/ws/{id}` | `cmd` / `waypoints` / `step` / `subscribe` / `run` / `stop` → 状態 JSON + センサ npz（バイナリ） |
 
@@ -123,21 +138,27 @@ hm.slope(), hm.normals()
 
 ## 性能
 
-| 項目 | 目標 | 結果 | 環境 |
-|---|---|---|---|
-| 1 km² / 0.25 m の地形生成（4001×4001、フラクタルのみ） | 数十秒 | 3.8 s | 4 vCPU クラウドコンテナ、Python 3.13 |
-| 同上 + クレーター（平衡分布 2 %, 1〜200 m, 約 3.1 万個を刻印）+ 岩石（約 6 万個） | 数十秒 | 約 14〜16 s | 同上（地形生成に numba 未使用） |
-| 640×480 カメラ画像（影あり、2 層地形: 2 km/1 m + 100 m/5 cm） | 1 秒以内 | **0.42〜0.48 s**（numba）/ 1.9〜2.3 s（numpy フォールバック） | 同上 |
-| 同上 + ライト 2 灯（影レイ込み） | — | 0.82 s（ステレオ左右で 1.8 s） | 同上 |
-| ローバー走行 120 s（0.5 s ステップ、接地計算込み） | — | 約 10 s（ステレオ 4 組の描画を含む） | 同上 |
-| API: step / state / カメラ npz（ライト 2 灯）/ LiDAR npz | — | 16 ms / 3 ms / 0.98 s（キャッシュ時 13 ms）/ 0.17 s | 同上、ローカルホスト |
-| 南極シナリオの World 構築（2 層、クレーター約 8 万個 + 近傍 0.35 万個） | — | 約 11 s | 同上 |
-| 32 ライン回転式 LiDAR 1 スキャン（5.8 万ビーム、ガウスモデル） | 0.2 s 以内 | **0.07 s**（numba） | 同上 |
-| SPAD フラッシュ LiDAR 1 フレーム（160×120 画素、背景光の影レイ込み） | — | **0.12〜0.19 s**（numba） | 同上 |
+`python scripts/bench.py`（ウォームアップ後の最良値、numba 使用）。4 vCPU クラウドコンテナ、Python 3.13。
 
-`configs/bench_1km.yaml`、`LUNARSIM_PERF=1 python -m pytest -s tests/test_perf.py`。ノート PC での計測は今後追記します。
-地形生成のボトルネックはクレーター刻印ループ（Python のループ + 小パッチの numpy 演算）。numba 化は Phase 8 で検討。
-numba が無い環境ではカメラ描画が目標（1 s）に届かない（2.25 s）。主因はベクトル化したレイ走査の反復回数で、numba の導入を推奨。
+| 項目 | 目標 | 結果 |
+|---|---|---|
+| 1 km² / 0.25 m の地形生成（4001×4001、クレーター約 10 万個 + 岩石約 6 万個を刻印） | 数十秒 | **16 s** |
+| 南極シナリオの World 構築（2 層: 2 km/1 m + 100 m/5 cm） | — | 11 s |
+| 640×480 カメラ画像（影あり、2 層地形） | 1 秒以内 | **0.47 s**（numpy フォールバック 約 2 s） |
+| 同上 + 半影（太陽円盤 16 サンプル） | — | 0.76 s |
+| 同上 + 半影 + 地球照 + ライト 2 灯 | — | 1.26 s |
+| ステレオ 640×480 左右 | — | 0.91 s |
+| 32 ライン回転式 LiDAR 1 スキャン | 0.2 秒以内 | **0.06 s** |
+| SPAD フラッシュ LiDAR 160×120（背景光の影レイ込み） | — | 0.14 s |
+| ホライズンマップ 501×501 点 × 64 方位（2 km 四方、4 m 間隔） | — | 13 s |
+| 長期日照 / PSR マップ（1 交点年を 2 時間刻み、4160 時刻） | — | 7.4 s |
+| ローバー走行 10 s（IMU なし / 200 Hz IMU あり） | — | 0.15 s / 1.6 s |
+| API: step / state / カメラ npz（ライト 2 灯）/ LiDAR npz | — | 16 ms / 3 ms / 0.98 s（キャッシュ時 13 ms）/ 0.17 s |
+
+Phase 8 での改善: RMS 斜度の計算を行ブロック化（4001² で 1.75 s → 0.11 s）、ホライズン走査を勾配比較 + 早期打ち切り
+（36 s → 13 s）、PSR 集計を numba 化（50 s → 7.4 s）、カメラの画素レイ（歪み補正）をキャッシュ、接地計算の小さな高速化。
+残るボトルネック: 地形生成はクレーター刻印ループ（約 12 s、Python のループ + 小パッチの numpy 演算。numba 化の余地あり）。
+numba が無い環境ではカメラ描画が目標（1 s）に届かない（約 2 s）。レイ走査の反復回数が主因なので numba の導入を推奨。
 
 ## ライセンス
 

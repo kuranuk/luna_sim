@@ -39,6 +39,7 @@ __all__ = [
     "rot_x",
     "rot_y",
     "rot_z",
+    "rotvec_from_matrix",
 ]
 
 FloatArray = npt.NDArray[np.float64]
@@ -156,6 +157,16 @@ R_BODY_FROM_CAMERA: FloatArray = np.array(
 R_BODY_FROM_CAMERA.setflags(write=False)
 R_CAMERA_FROM_BODY: FloatArray = R_BODY_FROM_CAMERA.T.copy()
 R_CAMERA_FROM_BODY.setflags(write=False)
+
+
+def rotvec_from_matrix(R: FloatArray) -> FloatArray:
+    """Rotation vector (axis · angle [rad], angle in [0, π]) of a rotation matrix."""
+    q = quat_from_matrix(R)
+    v = q[1:]
+    n = float(np.linalg.norm(v))
+    if n < 1e-12:
+        return np.asarray(2.0 * v, dtype=np.float64)
+    return np.asarray(v / n * (2.0 * math.atan2(n, float(q[0]))), dtype=np.float64)
 
 
 def azel_to_enu(azimuth: npt.ArrayLike, elevation: npt.ArrayLike) -> FloatArray:

@@ -44,6 +44,7 @@ from lunarsim.core.terrain.craters import (
     sample_diameters,
     stamp_craters,
 )
+from lunarsim.core.terrain.dem import BaseSurface
 from lunarsim.core.terrain.fractal import (
     fractal_psd,
     increment_variance,
@@ -95,6 +96,7 @@ class TwoLayerTerrain:
     cfg: TerrainConfig
     rngs: RngFactory
     workers: int | None = None
+    base: BaseSurface | None = None
     far: Terrain = field(init=False)
     near: Terrain = field(init=False)
     psd_constant: float = field(init=False)
@@ -137,6 +139,21 @@ class TwoLayerTerrain:
         k2 = ky[:, None] ** 2 + kx[None, :] ** 2
         return fractal_psd(k2, self.cfg.fractal) * (1.0 - _taper2(np.sqrt(k2), self.k_c))
 
+    def _highpass(self, k2: FloatArray) -> FloatArray | float:
+        """DEM mode: suppress wavelengths the DEM already carries (1 - taper² at its Nyquist)."""
+        hk = self.base.highpass_k if self.base is not None else None
+        if hk is None:
+            return 1.0
+        return 1.0 - _taper2(np.sqrt(k2), hk)
+
+    def _detail_psd_synth(self) -> FloatArray:
+        m, _ = self._tile_shape()
+        r = self.cfg.near.resolution_m
+        ky = sfft.fftfreq(m, d=r)
+        kx = sfft.rfftfreq(m, d=r)
+        k2 = ky[:, None] ** 2 + kx[None, :] ** 2
+        return self._detail_psd_unit() * self._highpass(k2)
+
     # ------------------------------------------------------------------ far
     def _build_far(self) -> None:
         cfg = self.cfg
@@ -153,6 +170,7 @@ class TwoLayerTerrain:
             kx = sfft.rfftfreq(nxp, d=r)
             k2 = ky[:, None] ** 2 + kx[None, :] ** 2
             psd_far = fractal_psd(k2, fc) * _taper2(np.sqrt(k2), self.k_c)
+            hp = self._highpass(k2)
             del k2
             L = fc.baseline_m
             target = (math.tan(math.radians(fc.rms_slope_deg)) * L) ** 2
@@ -160,8 +178,9 @@ class TwoLayerTerrain:
             s_det = increment_variance(
                 self._tile_shape(), cfg.near.resolution_m, self._detail_psd_unit(), L
             )
-            C = target / (s_far + s_det)
+            C = target / (s_far + s_det)  # amplitude of the full (un-high-passed) spectrum
             self.psd_constant = C
+            psd_far = psd_far * hp
             noise = self.rngs.generator("terrain/fractal/far").standard_normal((nyp, nxp))
             spec = sfft.rfft2(noise, workers=w)
             del noise
@@ -173,7 +192,7 @@ class TwoLayerTerrain:
             lag = max(1, round(L / r))
             expected = increment_variance((nyp, nxp), r, C * psd_far, lag * r)
             realised = (rms_slope_at_baseline(z, r, lag) * lag * r) ** 2
-            if realised > 0.0:
+            if realised > 0.0 and expected > 0.0:
                 z *= math.sqrt(expected / realised)
         hm = Heightmap.centered(z, r)
         hm.z[...] += cfg.base_elevation_m
@@ -182,6 +201,8 @@ class TwoLayerTerrain:
             grade = math.tan(math.radians(cfg.tilt.slope_deg))
             hm.z[...] -= grade * (hm.x[None, :] * math.sin(az) + hm.y[:, None] * math.cos(az))
         self._far_base = Heightmap(hm.z.copy(), hm.resolution, hm.x0, hm.y0)
+        if self.base is not None:  # DEM + curvature, evaluated per layer (not interpolated)
+            hm.z[...] += self.base.grid(hm.x, hm.y)
 
         self._large = self._large_craters(hm.extent)
         labels = np.full(hm.shape, Label.PLAIN, dtype=np.uint8)
@@ -232,7 +253,9 @@ class TwoLayerTerrain:
         if self.psd_constant > 0.0:
             rng = self.rngs.generator(f"terrain/detail/tile/{a}/{b}")
             spec = sfft.rfft2(rng.standard_normal((m, m)))
-            spec *= spectral_amplitude(self.psd_constant * self._detail_psd_unit(), nr.resolution_m)
+            spec *= spectral_amplitude(
+                self.psd_constant * self._detail_psd_synth(), nr.resolution_m
+            )
             f = sfft.irfft2(spec, s=(m, m))
             w1 = _tile_weight(m, nr.overlap_cells)
             f *= w1[:, None] * w1[None, :]
@@ -292,6 +315,8 @@ class TwoLayerTerrain:
         V, U = np.meshgrid(vv, uu, indexing="ij")
         z = map_coordinates(fb.z, [V, U], order=3, mode="nearest")
         del U, V
+        if self.base is not None:
+            z += self.base.grid(np.asarray(xs, np.float64), np.asarray(ys, np.float64))
 
         # 2) fine detail from tiles
         tc, ov = nr.tile_cells, nr.overlap_cells

@@ -8,7 +8,7 @@ site:
   longitude_deg: 0.0
 sun:
   mode: astronomical
-  utc: "2026-12-20T00:00:00Z"   # simple model: elevation ≈ 1.6°, azimuth ≈ 49°
+  utc: "2026-12-20T00:00:00Z"   # elevation ≈ 1.6°, azimuth ≈ 49° (analytic ≈ SPICE within 0.07°)
 terrain:
   size_x_m: 2000.0
   size_y_m: 2000.0

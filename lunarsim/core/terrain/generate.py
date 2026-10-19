@@ -10,6 +10,7 @@ import numpy.typing as npt
 from lunarsim.config.schema import TerrainConfig
 from lunarsim.core.rng import RngFactory
 from lunarsim.core.terrain.craters import CraterCatalog, generate_craters, stamp_craters
+from lunarsim.core.terrain.dem import BaseSurface
 from lunarsim.core.terrain.fractal import synthesize_fractal
 from lunarsim.core.terrain.heightmap import Heightmap
 from lunarsim.core.terrain.labels import Label
@@ -37,16 +38,26 @@ class Terrain:
     rocks: RockCatalog
 
 
-def build_terrain(cfg: TerrainConfig, rngs: RngFactory, workers: int | None = None) -> Terrain:
+def build_terrain(
+    cfg: TerrainConfig,
+    rngs: RngFactory,
+    workers: int | None = None,
+    base: BaseSurface | None = None,
+) -> Terrain:
     """Generate the terrain deterministically from ``cfg`` and ``rngs``.
 
-    Order: fractal -> tilt -> craters (oldest first) -> rocks. Every stochastic stage
-    uses its own named stream, so e.g. changing the crater settings leaves the
-    background rocks unchanged.
+    Order: fractal -> tilt -> base surface (DEM, curvature) -> craters (oldest first)
+    -> rocks. Every stochastic stage uses its own named stream, so e.g. changing the
+    crater settings leaves the background rocks unchanged.
     """
     ny, nx = cfg.shape
     z = synthesize_fractal(
-        (ny, nx), cfg.resolution_m, cfg.fractal, rngs.generator(STREAM_FRACTAL), workers=workers
+        (ny, nx),
+        cfg.resolution_m,
+        cfg.fractal,
+        rngs.generator(STREAM_FRACTAL),
+        workers=workers,
+        highpass_k=base.highpass_k if base is not None else None,
     )
     hm = Heightmap.centered(z, cfg.resolution_m)
     z = hm.z  # contiguous float64 array owned by hm
@@ -56,6 +67,8 @@ def build_terrain(cfg: TerrainConfig, rngs: RngFactory, workers: int | None = No
         gx, gy = np.sin(az), np.cos(az)  # downhill unit vector (East, North)
         grade = np.tan(np.deg2rad(cfg.tilt.slope_deg))
         z -= grade * (hm.x[None, :] * gx + hm.y[:, None] * gy)
+    if base is not None:
+        z += base.grid(hm.x, hm.y)
 
     labels = np.full((ny, nx), Label.PLAIN, dtype=np.uint8)
     craters = generate_craters(cfg.craters, hm.extent, rngs)

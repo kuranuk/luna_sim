@@ -71,6 +71,7 @@ class DatasetConfig(_M):
     camera_buffers: list[Literal["depth", "labels", "shadow"]] = ["depth", "labels"]
     lidars: list[str] = []
     lidar_formats: list[Literal["bin", "ply", "pcd", "npz"]] = ["bin"]
+    imus: list[str] = []
     variations: list[SunVariation] = [SunVariation(name="default")]
 
     @model_validator(mode="after")

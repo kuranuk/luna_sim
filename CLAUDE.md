@@ -30,6 +30,9 @@ python scripts/demo_phase4.py               # out/phase4/ に LiDAR 点群（PLY
 python scripts/demo_phase5.py               # out/phase5/ にローバー走行・ステレオ・ライト
 python scripts/demo_phase6.py               # out/phase6/ にサーバ + クライアント + WS 走行
 python scripts/demo_phase7.py               # out/phase7/ にデータセット + ビューアのスクショ
+python scripts/demo_phase8.py               # out/phase8/ に半影・地球照・曲率・DEM・PSR・IMU・SPICE
+python scripts/bench.py                     # out/bench/ に性能表
+lunarsim psr configs/south_pole_lowsun.yaml --stride 4   # 長期日照 / PSR マップ
 lunarsim serve                              # API サーバ（127.0.0.1:8000, /docs）
 lunarsim serve --world configs/south_pole_lowsun.yaml   # ビューア: /viewer/#token=...
 lunarsim dataset configs/dataset_south_pole_sun_sweep.yaml   # データセット生成
@@ -101,10 +104,13 @@ fractal (`terrain/fractal`) → tilt → craters (`terrain/craters/{count,size,p
   2 層は `LayeredCaster`（近傍パッチの xy 範囲内は近傍層、外は遠方層）。三角形は両面判定。
 - 陰影法線 = 格子点の中心差分勾配の双一次補間（滑らか）。影は幾何（三角形）で判定。
 - 放射輝度はカメラ帯域内の値 [W m⁻² sr⁻¹]: 太陽 = 放射照度 × `band_fraction` × r(i,e,g)、ライト = r × I(θ)/d²。
-  太陽高度 ≤ 0 では直射光なし（曲率未考慮の接平面世界のため）。環境光ゼロ。
+  曲率なし（既定）では太陽高度 ≤ 0 で直射光なし。`terrain.curvature` では各点の局所鉛直で判定。環境光ゼロ（地球照は任意）。
 - レイキャスタの注意（過去のバグ）: 1 セル内の 2 三角形は各々有効区間で判定してから最小値をとる。
   ほぼ 0 の水平方向成分（< 1e-12）は 0 とみなす（格子線上の無限ループ防止）。
 - 乱数: カメラノイズ `sensor/camera/{name}/frame/{index:06d}`。
+- 遠方光源は `illumination/visibility.py` の `SkyLighting`（`World.sky`）: 半影（太陽円盤サンプリング、
+  `penumbra_samples` = 0 なら従来の影レイ 1 本と同じ判定）、地球照（地球は点光源）、曲率（局所鉛直で地平線判定）。
+  `shadow` バッファ = 円盤の可視割合 < 0.5。
 
 ## LiDAR
 
@@ -116,6 +122,15 @@ fractal (`terrain/fractal`) → tilt → craters (`terrain/craters/{count,size,p
 - 点はその計測時刻のセンサ座標（FLU）で出力（走行中の歪みは `SensorMotion` で再現）。
 - 乱数: `sensor/lidar/{name}/frame/{index:06d}`。乱数の消費量はヒットの有無に依らず一定。
 
+## 太陽・地形の任意機能（Phase 8）
+
+- 太陽: `sun.ephemeris`（auto: カーネルがあれば SPICE、無ければ簡易モデル）。SPICE は `illumination/spice.py`
+  （カーネルプールはプロセス共通なのでロック）。簡易モデルは SPICE と太陽 ≤ 0.07°、地球 ≤ 0.11°（docs/references.md）。
+- 実 DEM / 曲率は `terrain/dem.py` の `BaseSurface`: 各層の格子点で解析的に評価して加算（スプライン補間しない）。
+  2 層では遠方層の基盤（`_far_base`）に DEM・曲率を含めない（近傍パッチは補間 + 自前で評価）。
+  DEM の窓は 16 px 余白をとって 3 次スプラインの前処理をパッチ位置に依らないようにする。全球の等緯度経度 DEM は経度方向に巡回。
+- ホライズンマップ / PSR: `illumination/horizon.py`（numba / numpy 同一アルゴリズム、勾配で比較し atan は最後に 1 回）。
+
 ## ローバー
 
 - `core/rover/`: 運動学（skid_steer: v, ω / ackermann: v, δ）、静的接地（車輪接地面 3×3 点の最高点に平面当てはめ）、
@@ -125,6 +140,9 @@ fractal (`terrain/fractal`) → tilt → craters (`terrain/craters/{count,size,p
   光学座標は `R_BODY_FROM_CAMERA` で変換。ステレオは右カメラ = 左カメラの画像 x 方向に基線長だけずらす。
 - `World.step(dt)` で時間を進める。2 層地形では近傍パッチがローバーに追従して再生成される（パッチ寸法の 1/4 以上離れたら）。
 - 乱数: ステレオ右カメラは `sensor/camera/{name}/right/frame/{index:06d}`。
+- IMU（`core/sensors/imu.py`）: `World.step` はローバーのサブステップを IMU のサンプル時刻で区切り、その時刻の姿勢を記録
+  （IMU が無いときのサブステップ列は従来と同じ）。真値は後退差分 + 低域通過（既定 5 Hz・2 次）、ノイズは
+  `sensor/imu/{name}/block/{b:06d}`（1024 サンプル単位）なのでステップの分割に依らない。`reset_dynamic` でリセット。
 
 ## API（`lunarsim/api`, `lunarsim/client`）
 

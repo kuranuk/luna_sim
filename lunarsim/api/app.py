@@ -36,6 +36,7 @@ from lunarsim.api.schemas import (
 from lunarsim.api.settings import ServerSettings
 from lunarsim.config.load import parse_config
 from lunarsim.core.raycast import HAS_NUMBA
+from lunarsim.core.sensors.imu import ImuSamples
 from lunarsim.core.world import CameraFrame, World
 from lunarsim.io.bundle import (
     camera_npz,
@@ -272,6 +273,19 @@ def create_app(settings: ServerSettings | None = None) -> FastAPI:
     async def state(world_id: str) -> dict[str, Any]:
         return await locked(entry(world_id), lambda w: w.state())
 
+    @app.get("/worlds/{world_id}/sensors/imu/{name}", dependencies=deps)
+    async def imu(
+        world_id: str,
+        name: str,
+        since_s: Annotated[float | None, Query(description="samples with t > since_s")] = None,
+    ) -> dict[str, Any]:
+        def make(w: World) -> dict[str, Any]:
+            if name not in w.imus:
+                raise HTTPException(404, f"unknown imu {name!r}")
+            return w.imu_samples(name, since_s).to_dict() | {"time_s": w.time_s}
+
+        return await locked(entry(world_id), make)
+
     # ------------------------------------------------------------------ sensors
     def _camera(e: WorldEntry, name: str, frame_index: int, eye: str) -> CameraFrame:
         w = e.world
@@ -391,7 +405,9 @@ class WsSession:
     ``run`` (auto-step at ``rate_hz`` with ``dt_s``), ``stop``.
     Server -> client: ``{"type": "state", ...}`` after every step; for each subscribed
     sensor a JSON header ``{"type": "camera"|"lidar", "name", "frame_index", "bytes"}``
-    followed by one binary message (npz). Errors: ``{"type": "error", "detail"}``.
+    followed by one binary message (npz); for each subscribed IMU (every step) a JSON
+    ``{"type": "imu", "name", "t", "gyro", "accel", ...}`` with the samples since the last
+    message. Errors: ``{"type": "error", "detail"}``.
     """
 
     def __init__(self, entry: WorldEntry, websocket: WebSocket) -> None:
@@ -399,6 +415,7 @@ class WsSession:
         self.ws = websocket
         self.cameras: list[tuple[str, str]] = []
         self.lidars: list[str] = []
+        self.imus: dict[str, float | None] = {}  # name -> time of the last sample sent
         self.every = 1
         self.steps = 0
         self.runner: asyncio.Task[None] | None = None
@@ -419,6 +436,15 @@ class WsSession:
         state = await self._call(lambda w: (w.step(dt), w.state())[1])
         self.steps += 1
         await self._send_json({"type": "state", **state})
+        for name, last in list(self.imus.items()):
+
+            def imu_batch(w: World, n: str = name, t: float | None = last) -> ImuSamples:
+                return w.imu_samples(n, t)
+
+            batch = await self._call(imu_batch)
+            if len(batch):
+                self.imus[name] = float(batch.t[-1])
+                await self._send_json({"type": "imu", "name": name, **batch.to_dict()})
         if self.steps % self.every:
             return
         idx = self.steps
@@ -490,9 +516,17 @@ class WsSession:
             for name in lids:
                 if name not in world.lidars:
                     raise ValueError(f"unknown lidar {name!r}")
+            imus = list(msg.get("imus", []))
+            for name in imus:
+                if name not in world.imus:
+                    raise ValueError(f"unknown imu {name!r}")
             self.cameras, self.lidars = cams, lids
+            now = world.time_s
+            self.imus = {n: now for n in imus}
             self.every = max(1, int(msg.get("every_n_steps", 1)))
-            await self._send_json({"type": "subscribed", "cameras": cams, "lidars": lids})
+            await self._send_json(
+                {"type": "subscribed", "cameras": cams, "lidars": lids, "imus": imus}
+            )
         elif kind == "run":
             await self._stop()
             dt = StepBody.model_validate({"dt_s": msg.get("dt_s", 0.1)}).dt_s

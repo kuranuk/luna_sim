@@ -148,7 +148,7 @@ luna_sim/
 | 5 | ローバー運動学（skid/Ackermann）・静的接地（車輪接地面）・すべり・転倒警告, 取り付け位置（YAML）, スポットライト（光束・配光・逆二乗・影）, ステレオ, 近傍パッチの追従。描画の放射輝度をカメラ帯域内に統一 | 接地姿勢の解析比較、運動学積分、ライト照度の逆二乗則 |
 | 6 | FastAPI REST + WS（指令・ウェイポイント・step・購読・自動実行）, トークン認証と外部公開時の起動拒否, スレッドプール + World ロック, 描画キャッシュ, Python クライアント（urllib + websockets）, ROS 2 ブリッジのインターフェース。lock に server 依存を追加（Python 3.10 対応版・テレメトリ依存なし） | TestClient による API テスト、決定論的 step |
 | 7 | ビューア（Three.js r160 同梱, `/viewer/`, WASD 走行・太陽スライダ・ライト・点群・カメラ画像）, `serve --world` で事前読込, データセット生成（`lunarsim dataset`: 同一軌跡 × 太陽条件, KITTI/TUM/calib, KITTI .bin 点群） | ヘッドレスで静的ファイル配信確認、データセット形式検証 |
-| 8 | SPICE, 実 DEM, IMU, 半影, 地球照, PSR, 性能チューニング, README に性能表 | bench.py の結果 |
+| 8 | SPICE（auto/spice, 簡易モデルを SPICE で検証し視差補正と月理論の項を追加）, 実 DEM（GeoTIFF/npy, 極ステレオ/等緯度経度/ローカル）, 月面曲率, 半影, 地球照, ホライズンマップ + PSR マップ（`lunarsim psr`）, IMU（API・WS・データセット）, 性能チューニング（RMS 斜度の分割計算、ホライズン走査、PSR の numba 化、画素レイのキャッシュ）, `scripts/bench.py` | 円盤の弓形面積による半影の解析比較、曲率の明暗境界、DEM の地理参照（合成 GeoTIFF）、IMU の真値・ノイズ統計・分割不変性、SPICE 比較（カーネルがあるとき） |
 
 各 Phase: 実装 → テスト → デモスクリプト実行（出力画像を提示）→ commit/push。
 

@@ -24,9 +24,12 @@ __all__ = [
     "CraterDegradationConfig",
     "CraterSFDConfig",
     "CraterShapeConfig",
+    "DemConfig",
     "EjectaRockConfig",
     "FractalConfig",
     "HapkeConfig",
+    "ImuConfig",
+    "ImuNoiseConfig",
     "LidarConfig",
     "LidarNoiseConfig",
     "LidarPatternConfig",
@@ -279,6 +282,54 @@ class NearPatchConfig(_Model):
         return self
 
 
+class DemConfig(_Model):
+    """Real DEM as the large-scale base terrain (SPEC 3.1; optional ``tifffile`` for GeoTIFF).
+
+    The DEM is resampled (cubic spline) onto the world grid; wavelengths longer than
+    ``2 x`` the DEM pixel come from the DEM, the fractal continues the power law below
+    that (the fractal spectrum is high-passed at the DEM Nyquist frequency), then
+    craters and rocks are added as usual.
+
+    Georeferencing (``projection``):
+
+    * ``polar_stereographic``: map metres of a polar stereographic projection on the
+      sphere of radius ``radius_m`` (true scale at the pole, central meridian 0°;
+      x = ρ sin λ, y = ∓ρ cos λ as used by LOLA polar products). The world origin is
+      the site (``site.latitude_deg/longitude_deg``); world axes are true East/North.
+    * ``equirectangular``: map units are degrees (x = east longitude, y = latitude);
+      also centred on the site.
+    * ``local``: map metres used directly as East/North; ``center_x_m/center_y_m``
+      give the map point placed at the world origin.
+
+    Heights: ``value * height_scale + height_offset_m`` relative to the reference sphere
+    (LOLA). The DEM height at the world origin is subtracted (so z ≈ 0 at the origin;
+    ``terrain.base_elevation_m`` is added afterwards). For GeoTIFF the pixel size and
+    origin come from the ModelPixelScale / ModelTiepoint tags; for ``.npy`` they must be
+    given here (``pixel_size``, ``origin_x``, ``origin_y`` of pixel [0, 0]'s centre,
+    rows running towards decreasing y as in GeoTIFF unless ``rows_north_up`` is false).
+    """
+
+    enabled: bool = False
+    path: str = ""
+    projection: Literal["polar_stereographic", "equirectangular", "local"] = "local"
+    radius_m: PositiveFloat = 1737.4e3  # IAU mean lunar radius (LOLA reference sphere)
+    height_scale: float = 1.0
+    height_offset_m: float = 0.0
+    nodata: float | None = None  # in addition to the GDAL_NODATA tag; filled by nearest
+    center_x_m: float = 0.0  # projection "local" only
+    center_y_m: float = 0.0
+    pixel_size: PositiveFloat | None = None  # .npy only (map units)
+    origin_x: float | None = None
+    origin_y: float | None = None
+    rows_north_up: bool = True
+
+    @model_validator(mode="after")
+    def _check(self) -> DemConfig:
+        if self.enabled and not self.path:
+            raise ValueError("terrain.dem.path is required when the DEM is enabled")
+        return self
+
+
 class TerrainConfig(_Model):
     """Regular-grid heightmap (DEM) definition."""
 
@@ -294,6 +345,11 @@ class TerrainConfig(_Model):
     craters: CraterConfig = CraterConfig()
     rocks: RockConfig = RockConfig()
     near: NearPatchConfig = NearPatchConfig()
+    dem: DemConfig = DemConfig()
+    # Lunar curvature: the tangent-plane world drops by (x² + y²) / (2 R) [m] (≈ 0.29 m at
+    # 1 km, 1.15 m at 2 km). Lighting then uses the local vertical at each surface point.
+    curvature: bool = False
+    moon_radius_m: PositiveFloat = 1737.4e3  # IAU mean radius
 
     @property
     def finest_resolution_m(self) -> float:
@@ -349,7 +405,19 @@ class SiteConfig(_Model):
 
 
 class SunConfig(_Model):
-    """Sun geometry: ``manual`` (azimuth/elevation) or ``astronomical`` (site + UTC)."""
+    """Sun geometry: ``manual`` (azimuth/elevation) or ``astronomical`` (site + UTC).
+
+    Astronomical ephemeris: ``analytic`` (built-in low-precision model), ``spice``
+    (``spiceypy`` + local kernels; error if unavailable) or ``auto`` (SPICE when
+    ``spice_kernels`` is set and spiceypy imports, analytic otherwise). Kernels are
+    never downloaded: list local files (or one meta-kernel), e.g. an LSK, a planetary
+    SPK (de4xx.bsp) and a PCK/FK defining ``spice_frame``.
+
+    Earthshine (optional second light source): Earth irradiance at the Moon
+    ``E = S · p_E · (R_E / d)² · Φ(α)`` with the Lambert-sphere phase function Φ and the
+    Earth phase angle α. In manual mode Earth is placed with ``earth_azimuth_deg`` /
+    ``earth_elevation_deg`` (None = no Earth).
+    """
 
     mode: Literal["manual", "astronomical"] = "manual"
     azimuth_deg: float = Field(135.0, ge=0.0, lt=360.0)
@@ -358,6 +426,26 @@ class SunConfig(_Model):
     utc: str = "2026-01-01T00:00:00Z"  # ISO 8601, astronomical mode
     # Total solar irradiance at 1 AU [W/m^2]; Kopp & Lean (2011): 1360.8 ± 0.5.
     irradiance_1au_w_m2: PositiveFloat = 1361.0
+    ephemeris: Literal["auto", "analytic", "spice"] = "auto"
+    spice_kernels: list[str] = []
+    # "MOON_ME" needs the lunar PA binary PCK + FK; "IAU_MOON" only a text PCK.
+    spice_frame: str = "IAU_MOON"
+    earthshine: bool = False
+    # Earth geometric albedo. Sample value: 0.367 (frequently quoted, e.g. Allen's
+    # Astrophysical Quantities); V-band studies give up to 0.434 (Mallama et al. 2017).
+    # TODO(ref): check originals; Earth's real phase curve is not Lambertian.
+    earth_geometric_albedo: float = Field(0.367, gt=0.0, le=1.0)
+    earth_azimuth_deg: float | None = Field(None, ge=0.0, lt=360.0)  # manual mode
+    earth_elevation_deg: float | None = Field(None, ge=-90.0, le=90.0)
+    earth_distance_m: PositiveFloat = 3.844e8  # manual mode (mean Earth-Moon distance)
+
+    @model_validator(mode="after")
+    def _check(self) -> SunConfig:
+        if (self.earth_azimuth_deg is None) != (self.earth_elevation_deg is None):
+            raise ValueError("earth_azimuth_deg and earth_elevation_deg go together")
+        if self.ephemeris == "spice" and not self.spice_kernels:
+            raise ValueError('sun.ephemeris "spice" requires sun.spice_kernels')
+        return self
 
 
 class HapkeConfig(_Model):
@@ -686,12 +774,63 @@ class RoverConfig(_Model):
     max_substep_s: PositiveFloat = 0.05
 
 
+class ImuNoiseConfig(_Model):
+    """IMU error model (continuous-time densities, Kalibr/EuRoC convention).
+
+    measurement = truth + bias + white noise; white noise σ_d = density / sqrt(Δt);
+    bias random walk b_k = b_{k-1} + rw · sqrt(Δt) · N(0, 1); turn-on bias ~ N(0, σ).
+    Generic sample values of a MEMS-class IMU (no specific device).
+    """
+
+    gyro_noise_density: float = Field(1.7e-4, ge=0.0)  # [rad/s/√Hz]
+    gyro_random_walk: float = Field(2.0e-5, ge=0.0)  # [rad/s²/√Hz]
+    gyro_turn_on_bias: float = Field(1.0e-3, ge=0.0)  # [rad/s] 1σ
+    accel_noise_density: float = Field(2.0e-3, ge=0.0)  # [m/s²/√Hz]
+    accel_random_walk: float = Field(3.0e-3, ge=0.0)  # [m/s³/√Hz]
+    accel_turn_on_bias: float = Field(2.0e-2, ge=0.0)  # [m/s²] 1σ
+
+
+class ImuConfig(_Model):
+    """6-axis IMU on the rover (sensor frame FLU, ``mount`` on the body).
+
+    Truth from the rover trajectory sampled at ``rate_hz`` (the rover is integrated with
+    sub-steps ending on the IMU sample instants): angular rate from consecutive attitudes
+    plus the Moon's rotation, specific force ``R^T (a - g)`` from second differences of the
+    sensor position (backward differences: up to one period of lag). The rigid static
+    contact has no suspension, so the truth is low-passed (``filter_order`` cascaded
+    first-order stages at ``bandwidth_hz``) to stand in for suspension + sensor filtering.
+    """
+
+    name: str = "imu0"
+    rate_hz: float = Field(100.0, gt=0.0, le=2000.0)
+    mount: MountConfig = MountConfig(z_m=0.3)
+    noise: ImuNoiseConfig = ImuNoiseConfig()
+    # Sample values: ~5 Hz second order gives 0.2-0.4 m/s² RMS vibration at 0.2 m/s on the
+    # rocky south-polar scene. None = raw finite differences (contact-switching spikes).
+    bandwidth_hz: PositiveFloat | None = 5.0
+    filter_order: int = Field(2, ge=1, le=4)
+    # Lunar surface gravity [m/s²] = GM / R² with GM = 4902.80 km³/s² (GRAIL,
+    # Konopliv et al. 2013) and R = 1737.4 km.
+    gravity_m_s2: PositiveFloat = 1.6243
+    # Sidereal rotation of the Moon [rad/s] = 2π / 27.321661 d.
+    moon_rotation_rad_s: float = Field(2.6617e-6, ge=0.0)
+    buffer_s: PositiveFloat = 600.0  # samples kept for queries
+
+
 class RenderConfig(_Model):
     """Rendering options."""
 
     # Shadow-ray origin offset along the surface normal [m] (avoids self-shadowing).
     shadow_bias_m: PositiveFloat = 2.0e-3
     backend: Literal["auto", "numba", "numpy"] = "auto"
+    # Penumbra: number of shadow rays over the solar disc (0 = point sun, hard shadows).
+    # Adaptive: 4 rim rays first; the full set only where they disagree.
+    penumbra_samples: int = Field(0, ge=0, le=256)
+    # Solar radius for the angular size of the disc [m] (IAU 2015 nominal 695 700 km).
+    sun_radius_m: PositiveFloat = 6.957e8
+    # Linear limb darkening I(μ)/I(1) = 1 - u (1 - μ). Sample value for visible light.
+    # TODO(ref): wavelength-dependent coefficient (e.g. Neckel & Labs 1994).
+    limb_darkening_u: float = Field(0.6, ge=0.0, le=1.0)
 
 
 class WorldConfig(_Model):
@@ -706,13 +845,14 @@ class WorldConfig(_Model):
     cameras: list[CameraConfig] = [CameraConfig()]
     lidars: list[LidarConfig] = [LidarConfig()]
     lights: list[SpotlightConfig] = []
+    imus: list[ImuConfig] = []
     rover: RoverConfig = RoverConfig()
     render: RenderConfig = RenderConfig()
 
     @model_validator(mode="after")
     def _unique_cameras(self) -> WorldConfig:
         names = [c.name for c in self.cameras] + [s.name for s in self.lidars]
-        names += [lt.name for lt in self.lights]
+        names += [lt.name for lt in self.lights] + [m.name for m in self.imus]
         if len(set(names)) != len(names):
             raise ValueError("sensor names must be unique")
         return self

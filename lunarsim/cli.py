@@ -64,6 +64,60 @@ def _cmd_serve(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_psr(args: argparse.Namespace) -> int:
+    from datetime import timedelta
+
+    import numpy as np
+
+    from lunarsim.core.terrain import Heightmap
+    from lunarsim.core.world import World, parse_utc
+    from lunarsim.io.preview import hillshade
+    from lunarsim.io.raster import save_npy, write_png8
+
+    out = Path(args.out)
+    out.mkdir(parents=True, exist_ok=True)
+    world = World.from_yaml(args.config)
+    t0 = parse_utc(args.start)
+    t1 = t0 + timedelta(days=args.days)
+    tic = time.perf_counter()
+    m = world.long_term_illumination(
+        t0, t1, timedelta(hours=args.step_hours), args.layer, args.n_azimuth, args.stride
+    )
+    dt = time.perf_counter() - tic
+    save_npy(out / "mean_sun_fraction.npy", m.mean_sun_fraction)
+    save_npy(out / "max_sun_fraction.npy", m.max_sun_fraction)
+    save_npy(out / "earth_visible_fraction.npy", m.earth_visible_fraction)
+    save_npy(out / "psr.npy", m.psr)
+    write_png8(out / "mean_sun_fraction.png", m.mean_sun_fraction)
+    write_png8(out / "earth_visible_fraction.png", np.nan_to_num(m.earth_visible_fraction))
+    res = float(m.x[1] - m.x[0]) if m.x.size > 1 else 1.0
+    far = world.terrain_far
+    terrain = far if (args.layer in ("auto", "far") and far is not None) else world.terrain
+    z = terrain.heightmap.z[:: args.stride, :: args.stride]
+    shade = hillshade(Heightmap(np.ascontiguousarray(z), res, 0.0, 0.0))
+    rgb = np.stack([shade, shade, shade], axis=-1) * 0.8
+    rgb[m.psr] = [0.1, 0.3, 1.0]
+    write_png8(out / "psr_overlay.png", rgb)
+    summary = {
+        "config": str(args.config),
+        "site": world.config.site.model_dump(),
+        "ephemeris": world.ephemeris,
+        "start_utc": t0.isoformat(),
+        "end_utc": t1.isoformat(),
+        "step_hours": args.step_hours,
+        "samples": m.n_samples,
+        "grid_shape": list(m.mean_sun_fraction.shape),
+        "grid_spacing_m": res,
+        "psr_area_fraction": float(m.psr.mean()),
+        "mean_illumination": float(m.mean_sun_fraction.mean()),
+        "max_mean_illumination": float(m.mean_sun_fraction.max()),
+        "compute_time_s": dt,
+    }
+    (out / "summary.json").write_text(json.dumps(summary, indent=2))
+    print(json.dumps(summary, indent=2))
+    return 0
+
+
 def _cmd_dataset(args: argparse.Namespace) -> int:
     from lunarsim.datasets import generate_dataset, load_dataset_config
 
@@ -83,6 +137,16 @@ def main(argv: list[str] | None = None) -> int:
     g.add_argument("--seed", type=int, default=None, help="override seed")
     g.add_argument("--out", default="out/world", help="output directory")
     g.set_defaults(func=_cmd_gen_world)
+    ps = sub.add_parser("psr", help="long-term illumination / PSR map of a scenario")
+    ps.add_argument("config", help="scenario YAML (site latitude/longitude are used)")
+    ps.add_argument("--start", default="2026-01-01T00:00:00Z")
+    ps.add_argument("--days", type=float, default=346.62, help="span (default: draconic year)")
+    ps.add_argument("--step-hours", type=float, default=2.0)
+    ps.add_argument("--layer", choices=["auto", "near", "far"], default="auto")
+    ps.add_argument("--n-azimuth", type=int, default=64)
+    ps.add_argument("--stride", type=int, default=1, help="use every N-th grid node")
+    ps.add_argument("--out", default="out/psr")
+    ps.set_defaults(func=_cmd_psr)
     ds = sub.add_parser("dataset", help="generate a dataset from a dataset YAML")
     ds.add_argument("config", help="dataset YAML (see configs/dataset_*.yaml)")
     ds.add_argument("--out", default=None, help="override output_dir")

@@ -324,3 +324,27 @@ def test_viewer_static_and_preload(tmp_path: Path) -> None:
         assert c.get("/worlds").status_code == 401
         lst = c.get("/worlds", headers={"Authorization": "Bearer tok"}).json()
         assert len(lst) == 1
+
+
+def test_imu_endpoint_and_ws(client: TestClient) -> None:
+    cfg = {**CFG, "imus": [{"name": "imu0", "rate_hz": 50.0}]}
+    r = client.post("/worlds", json={"config": cfg})
+    wid = r.json()["world_id"]
+    client.post(f"/worlds/{wid}/rover/cmd", json={"v_m_s": 0.1})
+    client.post(f"/worlds/{wid}/step", json={"dt_s": 1.0})
+    data = client.get(f"/worlds/{wid}/sensors/imu/imu0").json()
+    assert len(data["t"]) == 51 and len(data["gyro"][0]) == 3
+    part = client.get(f"/worlds/{wid}/sensors/imu/imu0", params={"since_s": 0.5}).json()
+    assert len(part["t"]) == 25 and part["t"][0] > 0.5
+    ref = World(parse_config(cfg))
+    ref.set_rover_command(0.1)
+    ref.step(1.0)
+    np.testing.assert_array_equal(np.asarray(data["accel"]), ref.imu_samples("imu0").accel)
+    assert client.get(f"/worlds/{wid}/sensors/imu/nope").status_code == 404
+    with client.websocket_connect(f"/ws/{wid}") as ws:
+        ws.send_json({"type": "subscribe", "imus": ["imu0"]})
+        assert ws.receive_json()["imus"] == ["imu0"]
+        ws.send_json({"type": "step", "dt_s": 0.2})
+        assert ws.receive_json()["type"] == "state"
+        msg = ws.receive_json()
+        assert msg["type"] == "imu" and len(msg["t"]) == 10

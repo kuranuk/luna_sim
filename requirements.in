@@ -12,3 +12,6 @@ fastapi==0.141.1  # last release without an opentelemetry-api dependency
 starlette==1.7.0  # last release supporting Python 3.10
 uvicorn==0.54.0
 websockets==16.1.1  # last release supporting Python 3.10
+# Optional extras [spice] / [dem] (only numpy as dependency).
+spiceypy==8.3.0  # MIT; bundles CSPICE (NAIF, public domain)
+tifffile==2025.5.10  # BSD-3-Clause; last release supporting Python 3.10
