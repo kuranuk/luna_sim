@@ -16,7 +16,7 @@ from typing import Annotated, Any, TypeVar
 
 import yaml
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, WebSocket
-from fastapi.responses import JSONResponse, RedirectResponse, Response
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import ValidationError
 from starlette.concurrency import run_in_threadpool
@@ -104,6 +104,15 @@ def create_app(settings: ServerSettings | None = None) -> FastAPI:
 
     static_dir = Path(__file__).resolve().parents[1] / "viewer" / "static"
     if static_dir.is_dir():  # browser viewer (static files only; data needs the token)
+        index_html = (static_dir / "index.html").read_text(encoding="utf-8")
+        if not cfg.viewer_cdn:
+            index_html = index_html.replace('<html lang="ja">', '<html lang="ja" data-cdn="off">')
+
+        @app.get("/viewer/", include_in_schema=False)
+        @app.get("/viewer/index.html", include_in_schema=False)
+        def viewer_index() -> HTMLResponse:
+            return HTMLResponse(index_html)
+
         app.mount("/viewer", StaticFiles(directory=static_dir, html=True), name="viewer")
 
         @app.get("/", include_in_schema=False)

@@ -319,8 +319,16 @@ def test_viewer_static_and_preload(tmp_path: Path) -> None:
         assert r.status_code in (302, 307) and r.headers["location"] == "/viewer/"
         page = c.get("/viewer/")  # static files need no token; data endpoints do
         assert page.status_code == 200 and "importmap" in page.text
-        js = c.get("/viewer/vendor/three.module.js")
-        assert js.status_code == 200 and "http" not in page.text.split("importmap")[1][:200]
+        # CDN by default: pinned version + SRI, vendored copy as fallback.
+        assert "cdn.jsdelivr.net/npm/three@0.160.0/" in page.text and "sha384-" in page.text
+        assert 'data-cdn="off"' not in page.text
+        for path in (
+            "vendor/three.module.js",
+            "vendor/addons/controls/OrbitControls.js",
+            "boot.js",
+            "app.js",
+        ):
+            assert c.get(f"/viewer/{path}").status_code == 200, path
         assert c.get("/worlds").status_code == 401
         lst = c.get("/worlds", headers={"Authorization": "Bearer tok"}).json()
         assert len(lst) == 1
@@ -348,3 +356,25 @@ def test_imu_endpoint_and_ws(client: TestClient) -> None:
         assert ws.receive_json()["type"] == "state"
         msg = ws.receive_json()
         assert msg["type"] == "imu" and len(msg["t"]) == 10
+
+
+def test_viewer_without_cdn() -> None:
+    with TestClient(create_app(ServerSettings(viewer_cdn=False))) as c:
+        page = c.get("/viewer/")
+        assert page.status_code == 200 and 'data-cdn="off"' in page.text
+    assert ServerSettings.from_env().viewer_cdn is True
+
+
+def test_vendored_three_matches_sri() -> None:
+    """The fallback files are byte-identical to the CDN files named in the import map."""
+    import base64
+    import hashlib
+    import re
+
+    static = Path(__file__).parents[1] / "lunarsim" / "viewer" / "static"
+    html = (static / "index.html").read_text()
+    hashes = re.findall(r"sha384-[A-Za-z0-9+/=]+", html)
+    files = ["vendor/three.module.js", "vendor/addons/controls/OrbitControls.js"]
+    for f, h in zip(files, hashes, strict=True):
+        digest = base64.b64encode(hashlib.sha384((static / f).read_bytes()).digest()).decode()
+        assert h == f"sha384-{digest}", f

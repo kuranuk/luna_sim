@@ -11,6 +11,7 @@
 - Q3: **2 層構成**（ローバー周辺の高解像度パッチ + 広域の低解像度格子）。回答「1」を最初の選択肢と解釈（Q2 と同じ読み方）。Phase 3 のレイキャスタで実装。`max_cells` による上限検証は各層に適用。
 - Q4: FastAPI 等は extras（`[server]`）に分離。閉域向けにはフル lock を配布。
 - Q5: カメラは**モノクロ**（単一帯域）。
+- 2026-10: 閉域専用ではないため**ビューアの JS は CDN 可**（jsDelivr、版固定 + SRI、失敗時は同梱版、`serve --no-cdn` / `LUNARSIM_VIEWER_CDN=0` で同梱版のみ）。Python 側のランタイム通信・テレメトリ・自動ダウンロードは引き続き行わない。
 - 依存は CPython 3.10〜3.13 共通の 1 本の lock にする（numpy 2.2 / scipy 1.15 / numba 0.61 系）。
 
 ## 0. 前提・調査結果
@@ -67,7 +68,7 @@ luna_sim/
     io/                     # png16, npy, ply, pcd, kitti/tum 軌跡, calib ファイル, 簡易 EXR は任意
     api/                    # FastAPI 薄ラッパ（schemas.py, routes_*.py, ws.py, auth.py, registry.py）
     client/                 # lunarsim.client（httpx + websockets）
-    viewer/static/          # index.html, js/*.js, vendor/three.module.js 等（同梱）
+    viewer/static/          # index.html, boot.js, app.js, vendor/（CDN と同一バイトのフォールバック）
     cli.py                  # `lunarsim serve|gen-world|render|dataset`
   configs/                  # flat_test.yaml, south_pole_lowsun.yaml, highland_rocky.yaml, ...
   scripts/                  # demo_phaseN.py, generate_dataset.py, build_wheelhouse.sh/.ps1, gen_licenses.py, bench.py

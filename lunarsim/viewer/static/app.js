@@ -1,7 +1,7 @@
 // LunarSim browser viewer. Talks only to the LunarSim server it is served from.
 // World frame: ENU (x East, y North, z Up) used directly in Three.js (camera.up = +z).
 import * as THREE from 'three';
-import { OrbitControls } from './vendor/OrbitControls.js';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
 const $ = (id) => document.getElementById(id);
 const hashToken = new URLSearchParams(location.hash.slice(1)).get('token');

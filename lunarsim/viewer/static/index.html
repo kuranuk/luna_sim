@@ -5,9 +5,35 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>LunarSim Viewer</title>
   <link rel="stylesheet" href="style.css">
-  <!-- All JavaScript is served locally (no CDN): Three.js r160 is vendored under vendor/. -->
-  <script type="importmap">
-    { "imports": { "three": "./vendor/three.module.js" } }
+  <!--
+    Three.js r160: from the jsDelivr CDN (exact version + SRI hashes) by default, with the
+    byte-identical copy under vendor/ as fallback (offline / CDN blocked) or when the page is
+    opened with ?local, or always when the server runs with LUNARSIM_VIEWER_CDN=0.
+    The import map must exist before any module loads, so it is written here synchronously.
+  -->
+  <script>
+    (() => {
+      const CDN = 'https://cdn.jsdelivr.net/npm/three@0.160.0/';
+      const params = new URLSearchParams(location.search);
+      let local = params.has('local');
+      try { local = local || sessionStorage.getItem('lunarsim.viewer.local') === '1'; } catch (e) {}
+      if (document.documentElement.dataset.cdn === 'off') local = true;
+      const base = local ? './vendor/' : CDN;
+      const three = local ? './vendor/three.module.js' : CDN + 'build/three.module.js';
+      const orbit = (local ? './vendor/addons/' : CDN + 'examples/jsm/') + 'controls/OrbitControls.js';
+      const map = { imports: { 'three': three, 'three/addons/': local ? './vendor/addons/' : CDN + 'examples/jsm/' } };
+      if (!local) {
+        map.integrity = {
+          [three]: 'sha384-61S/Nu32S3E5+n+KpCOTb2eRYps6fVKm+9Gz1QBvSePFthb46f063Aa/qe/lykFZ',
+          [orbit]: 'sha384-qlO/ZugKPxAQUAvTlQoo0QECzxJIJySZmCF/DHdb2Xn/hHndFwX/vfUAC9Hbk6LP',
+        };
+      }
+      window.LUNARSIM_VIEWER = { local, base };
+      const s = document.createElement('script');
+      s.type = 'importmap';
+      s.textContent = JSON.stringify(map);
+      document.currentScript.after(s);
+    })();
   </script>
 </head>
 <body>
@@ -58,6 +84,6 @@ lights: [{name: headlight}]
   </aside>
   <figure id="camera-box"><img id="camera-img" alt="camera"><figcaption id="camera-cap"></figcaption></figure>
   <div id="error"></div>
-  <script type="module" src="app.js"></script>
+  <script type="module" src="boot.js"></script>
 </body>
 </html>

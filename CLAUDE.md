@@ -80,7 +80,8 @@ R_BODY_FROM_CAMERA: x_cam -> -y_body, y_cam -> -z_body, z_cam -> +x_body
 - 物理パラメータには出典をコメントで残す。原典で確認できない値は「サンプル値」と明記し
   `TODO(ref):` を付け、設定で変えられるようにする。出典一覧は `docs/references.md`。
 - 型ヒント必須。`core` / `config` は mypy strict。行長 100。
-- ランタイムでネットワークアクセスしない（CDN・テレメトリ・自動ダウンロード禁止）。
+- Python 側はランタイムでネットワークアクセスしない（テレメトリ・自動ダウンロード禁止）。
+  例外: ビューアの JS は CDN 可（版固定 + SRI + 同梱版フォールバック、2026-10 ユーザー判断）。
 - 依存追加は寛容ライセンス（MIT/BSD/Apache-2.0 等）のみ。Open3D は使わない（wheel 約 400 MB のため）。
   レイキャストは `core/raycast/` の抽象 + 自前の高さマップレイキャスタ（numba 任意）。
 - 再現性: 同じ seed + 設定 + `requirements.lock` のバージョンでビット一致。スレッド数で結果を変えない。
@@ -159,7 +160,10 @@ fractal (`terrain/fractal`) → tilt → craters (`terrain/craters/{count,size,p
 
 ## ビューア / データセット（Phase 7）
 
-- ビューア `lunarsim/viewer/static/`（素の ES モジュール、ビルド不要）。Three.js は `vendor/` に同梱（CDN 禁止）。
+- ビューア `lunarsim/viewer/static/`（素の ES モジュール、ビルド不要）。Three.js r160 は jsDelivr から読み込み
+  （`index.html` で import map を生成、SRI 付き）。読み込み失敗（オフライン・SRI 不一致）時は `boot.js` が
+  `vendor/`（CDN と同一バイト、テストで SRI と照合）に切り替えて再読込。`?local`、`serve --no-cdn`、
+  `LUNARSIM_VIEWER_CDN=0` では最初から同梱版。CDN のライブラリを足すときは版固定 + `integrity` + 同梱版を揃える。
   3D は ENU（`camera.up = z`）。高さマップは `format=f32&max_size=N`、点群は `format=bin`（float32 xyzI）で取得。
   トークンは URL の `#token=`（サーバへ送られない fragment）→ sessionStorage。
 - データセット `lunarsim/datasets/`: 1 つの World を `reset_dynamic()` して変種ごとに同じ軌跡を再生。

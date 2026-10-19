@@ -52,6 +52,7 @@ def _cmd_serve(args: argparse.Namespace) -> int:
     settings = ServerSettings.from_env(
         host=args.host, port=args.port, token=args.token, allow_insecure=args.allow_insecure,
         max_worlds=args.max_worlds, preload_worlds=args.world or None,
+        viewer_cdn=False if args.no_cdn else None,
     )  # fmt: skip
     try:
         settings.check_exposure()
@@ -160,6 +161,8 @@ def main(argv: list[str] | None = None) -> int:
     sv.add_argument("--max-worlds", type=int, default=None)
     sv.add_argument("--world", action="append", default=[], metavar="YAML",
                     help="create a world from this scenario at start-up (repeatable)")  # fmt: skip
+    sv.add_argument("--no-cdn", action="store_true",
+                    help="viewer uses only the vendored Three.js (no CDN requests)")  # fmt: skip
     sv.set_defaults(func=_cmd_serve)
     args = parser.parse_args(argv)
     return int(args.func(args))

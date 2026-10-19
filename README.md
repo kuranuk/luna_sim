@@ -56,7 +56,9 @@ LUNARSIM_TOKEN=xxxx lunarsim serve --world configs/south_pole_lowsun.yaml
 # → http://127.0.0.1:8000/viewer/#token=xxxx を開く（トークンなしで起動した場合は #token 不要）
 ```
 
-Three.js（r160, MIT）は `lunarsim/viewer/static/vendor/` に同梱しており、CDN にはアクセスしません。
+Three.js（r160, MIT）は jsDelivr CDN から読み込みます（版固定 + SRI ハッシュ）。CDN に届かない場合は
+同梱の `lunarsim/viewer/static/vendor/`（同一ファイル）に自動で切り替わります。CDN を使わない場合は
+`lunarsim serve --no-cdn`（または `LUNARSIM_VIEWER_CDN=0`、URL に `?local`）。
 地形（近傍・遠方層）、太陽方向、ローバー、LiDAR 点群、カメラ画像（物理ベース描画）を表示し、
 W/A/S/D で走行、スライダで太陽方位・高度、チェックでライトを切り替えます。
 ビューア内の 3D 陰影は OpenGL の近似で、右上のカメラ画像がシミュレータの描画結果です。

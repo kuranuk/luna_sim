@@ -28,11 +28,17 @@ class ServerSettings(BaseModel):
     max_json_points: int = Field(50_000, ge=1)
     render_cache_size: int = Field(8, ge=0)
     preload_worlds: list[str] = []  # scenario YAML paths created at start-up
+    # Viewer loads Three.js from the jsDelivr CDN (pinned version + SRI, vendored fallback).
+    # False: always use the vendored copy (closed networks).
+    viewer_cdn: bool = True
 
     @classmethod
     def from_env(cls, **overrides: object) -> ServerSettings:
         """Settings with ``LUNARSIM_TOKEN`` taken from the environment if not given."""
         data: dict[str, object] = {"token": os.environ.get("LUNARSIM_TOKEN") or None}
+        cdn = os.environ.get("LUNARSIM_VIEWER_CDN")
+        if cdn is not None:
+            data["viewer_cdn"] = cdn.strip().lower() not in ("0", "false", "no", "off")
         data.update({k: v for k, v in overrides.items() if v is not None})
         return cls.model_validate(data)
 
