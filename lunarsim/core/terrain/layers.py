@@ -133,9 +133,10 @@ class TwoLayerTerrain:
 
     # ------------------------------------------------------------------ spectra
     def _detail_psd_unit(self) -> FloatArray:
-        if self._psd_cache.get("unit") is None:
-            self._psd_cache["unit"] = self._detail_psd_unit_compute()
-        return self._psd_cache["unit"]
+        psd = self._psd_cache.get("unit")
+        if psd is None:
+            psd = self._psd_cache["unit"] = self._detail_psd_unit_compute()
+        return psd
 
     def _detail_psd_unit_compute(self) -> FloatArray:
         m, _ = self._tile_shape()
@@ -154,9 +155,10 @@ class TwoLayerTerrain:
 
     def _detail_psd_synth(self) -> FloatArray:
         """Detail PSD used for synthesis (constant per terrain; cached)."""
-        if self._psd_cache.get("synth") is None:
-            self._psd_cache["synth"] = self._detail_psd_synth_compute()
-        return self._psd_cache["synth"]
+        psd = self._psd_cache.get("synth")
+        if psd is None:
+            psd = self._psd_cache["synth"] = self._detail_psd_synth_compute()
+        return psd
 
     def _detail_psd_synth_compute(self) -> FloatArray:
         m, _ = self._tile_shape()
