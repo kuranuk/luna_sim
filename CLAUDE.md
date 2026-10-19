@@ -34,7 +34,7 @@ python scripts/demo_phase8.py               # out/phase8/ に半影・地球照�
 python scripts/bench.py                     # out/bench/ に性能表
 lunarsim psr configs/south_pole_lowsun.yaml --stride 4   # 長期日照 / PSR マップ
 lunarsim serve                              # API サーバ（127.0.0.1:8000, /docs）
-lunarsim serve --world configs/south_pole_lowsun.yaml   # ビューア: /viewer/#token=...
+lunarsim serve --world configs/south_pole_lowsun.yaml   # ビューア: /viewer/#token=...（LiDAR のみ）
 lunarsim dataset configs/dataset_south_pole_sun_sweep.yaml   # データセット生成
 
 # 依存の更新（ネットあり）
@@ -161,6 +161,12 @@ fractal (`terrain/fractal`) → tilt → craters (`terrain/craters/{count,size,p
 - 依存の版: fastapi 0.141.1（0.142 以降は opentelemetry-api が必須依存になるため）、starlette 1.7.0 /
   websockets 16.1.1（Python 3.10 対応の最終版）。lock にテレメトリ系が無いことをテストで検査。
 - ROS 2 は `lunarsim/bridge/base.py` のインターフェースのみ（未実装）。
+
+## センサ構成（2026-10 ユーザー判断）
+
+- 当面は **LiDAR のみ**で運用: `configs/south_pole_lowsun.yaml` は `cameras: []`, `lights: []`。
+  カメラ（ステレオ navcam + ヘッドライト）付きは `south_pole_lowsun_stereo.yaml`（カメラを使うデモ・データセット・bench はこちら）。
+  カメラのコードは残す。スキーマの既定（`cam0`）は変えていない。
 
 ## ビューア / データセット（Phase 7）
 

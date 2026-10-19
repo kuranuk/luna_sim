@@ -54,7 +54,8 @@ terrain:
   craters: {enabled: true}
   rocks: {enabled: true, k: 0.08, d_min_m: 0.5}
 sun: {azimuth_deg: 120, elevation_deg: 8}
-lights: [{name: headlight}]
+cameras: []        # LiDAR only (add a camera here to get images)
+lidars: [{name: spad_flash}]
 </textarea>
         <button id="create">Create</button>
       </details>
@@ -73,13 +74,13 @@ lights: [{name: headlight}]
     </section>
     <section>
       <h2>Sensors</h2>
-      <label>Camera <select id="cam"></select></label>
+      <label id="cam-row">Camera <select id="cam"></select></label>
       <label>LiDAR <select id="lidar"></select></label>
-      <label><input id="auto-cam" type="checkbox" checked> Camera image (1 Hz)</label>
+      <label id="auto-cam-row"><input id="auto-cam" type="checkbox" checked> Camera image (1 Hz)</label>
       <label><input id="auto-lidar" type="checkbox" checked> LiDAR points (1 Hz)</label>
     </section>
     <pre id="hud"></pre>
-    <p class="hint">Viewer shading is an OpenGL approximation; the camera image on the right is
+    <p class="hint" id="cam-hint">Viewer shading is an OpenGL approximation; the camera image on the right is
       the physically based render (Hapke, cast shadows, sensor noise).</p>
   </aside>
   <figure id="camera-box"><img id="camera-img" alt="camera"><figcaption id="camera-cap"></figcaption></figure>

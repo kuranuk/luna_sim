@@ -4,7 +4,7 @@ Outputs in out/phase5/<scenario>/: trajectory over the near patch (PNG), per-ste
 state log (CSV), stereo pairs along the drive, and a headlight on/off comparison
 looking into a shadowed area.
 
-Usage: python scripts/demo_phase5.py [--config configs/south_pole_lowsun.yaml]
+Usage: python scripts/demo_phase5.py [--config configs/south_pole_lowsun_stereo.yaml]
 """
 
 from __future__ import annotations
@@ -32,7 +32,7 @@ def save_pair(out: Path, tag: str, left: CameraFrame, right: CameraFrame, bits: 
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--config", default=str(ROOT / "configs" / "south_pole_lowsun.yaml"))
+    ap.add_argument("--config", default=str(ROOT / "configs" / "south_pole_lowsun_stereo.yaml"))
     ap.add_argument("--out", default=str(ROOT / "out" / "phase5"))
     ap.add_argument("--duration", type=float, default=120.0)
     args = ap.parse_args()

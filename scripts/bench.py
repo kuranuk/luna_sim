@@ -73,7 +73,7 @@ def main() -> None:
         )
         del w
 
-    base = load_config(ROOT / "configs" / "south_pole_lowsun.yaml")
+    base = load_config(ROOT / "configs" / "south_pole_lowsun_stereo.yaml")
     dt, world = once(lambda: World(base))
     add("south-pole world build (2 km/1 m + 100 m/5 cm)", dt)
     for name in world.lights:

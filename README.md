@@ -51,8 +51,12 @@ python scripts/bench.py         # 性能計測 → out/bench/bench.{json,md}
 
 ## ブラウザビューア
 
+現在の標準シナリオ `configs/south_pole_lowsun.yaml` は **LiDAR のみ**（カメラ描画、特にステレオが重いため。
+カメラ付きは `south_pole_lowsun_stereo.yaml`）。カメラの無いワールドではビューアのカメラ欄を表示しない。
+
 ```bash
-LUNARSIM_TOKEN=xxxx lunarsim serve --world configs/south_pole_lowsun.yaml
+LUNARSIM_TOKEN=xxxx lunarsim serve --world configs/south_pole_lowsun.yaml          # LiDAR のみ
+LUNARSIM_TOKEN=xxxx lunarsim serve --world configs/south_pole_lowsun_stereo.yaml   # ステレオカメラ + ライト付き
 # → http://127.0.0.1:8000/viewer/#token=xxxx を開く（トークンなしで起動した場合は #token 不要）
 ```
 
@@ -101,7 +105,6 @@ c = LunarSimClient("http://127.0.0.1:8000", token=None)
 wid = c.create_world("configs/south_pole_lowsun.yaml")["world_id"]
 c.waypoints(wid, [(5, 0), (5, 5)], speed_m_s=0.2)
 c.step(wid, 10.0)
-frame = c.camera(wid, "navcam", fmt="npz", buffers=["depth", "labels"])  # dict of arrays
 scan = c.lidar(wid, "spad_flash")  # points (N,4), ring, time, ...
 with c.stream(wid) as s:  # WebSocket
     s.send(type="subscribe", lidars=["spad_flash"])

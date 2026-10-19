@@ -5,7 +5,7 @@ measures REST latencies, checks that the event loop stays responsive during a
 render, then drives along waypoints over the WebSocket while receiving camera and
 LiDAR frames. Outputs go to out/phase6/<scenario>/.
 
-Usage: python scripts/demo_phase6.py [--config configs/south_pole_lowsun.yaml]
+Usage: python scripts/demo_phase6.py [--config configs/south_pole_lowsun_stereo.yaml]
 """
 
 from __future__ import annotations
@@ -45,7 +45,7 @@ def timed(fn: Any, *a: Any, **k: Any) -> tuple[Any, float]:
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--config", default=str(ROOT / "configs" / "south_pole_lowsun.yaml"))
+    ap.add_argument("--config", default=str(ROOT / "configs" / "south_pole_lowsun_stereo.yaml"))
     ap.add_argument("--out", default=str(ROOT / "out" / "phase6"))
     args = ap.parse_args()
     out = Path(args.out) / Path(args.config).stem

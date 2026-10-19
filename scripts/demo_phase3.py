@@ -3,7 +3,7 @@
 Outputs in out/phase3/<scenario>/: camera images (8-bit preview + 16-bit DN), depth,
 labels (with shadow), shadow masks, a sun-elevation sweep and the far-layer shadow map.
 
-Usage: python scripts/demo_phase3.py [--config configs/south_pole_lowsun.yaml]
+Usage: python scripts/demo_phase3.py [--config configs/south_pole_lowsun_stereo.yaml]
 """
 
 from __future__ import annotations
@@ -49,7 +49,7 @@ def save_frame(out: Path, tag: str, f: CameraFrame, bits: int) -> None:
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--config", default=str(ROOT / "configs" / "south_pole_lowsun.yaml"))
+    ap.add_argument("--config", default=str(ROOT / "configs" / "south_pole_lowsun_stereo.yaml"))
     ap.add_argument("--seed", type=int, default=None)
     ap.add_argument("--out", default=str(ROOT / "out" / "phase3"))
     args = ap.parse_args()

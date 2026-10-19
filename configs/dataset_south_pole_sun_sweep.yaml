@@ -1,6 +1,6 @@
 # Same rover path in the south-polar scene under three sun elevations (SPEC 9).
 # Generate with:  lunarsim dataset configs/dataset_south_pole_sun_sweep.yaml
-scenario: south_pole_lowsun.yaml
+scenario: south_pole_lowsun_stereo.yaml
 output_dir: out/datasets/south_pole_sun_sweep
 duration_s: 60.0
 frame_rate_hz: 2.0

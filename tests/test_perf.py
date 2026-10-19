@@ -36,7 +36,7 @@ def test_camera_640x480_with_shadows(backend: str) -> None:
 
     if backend == "numba" and not HAS_NUMBA:
         pytest.skip("numba not installed")
-    cfg = load_config(ROOT / "configs" / "south_pole_lowsun.yaml")
+    cfg = load_config(ROOT / "configs" / "south_pole_lowsun_stereo.yaml")
     cfg = cfg.model_copy(update={"render": cfg.render.model_copy(update={"backend": backend})})
     w = World(cfg)
     for light in w.lights:
@@ -61,7 +61,7 @@ def test_lidar_scan(which: str) -> None:
     from lunarsim.config import load_config
     from lunarsim.core.frames import Pose
 
-    cfg = load_config(ROOT / "configs" / "south_pole_lowsun.yaml")
+    cfg = load_config(ROOT / "configs" / "south_pole_lowsun_stereo.yaml")
     w = World(cfg)
     pose = Pose.from_euler_zyx(0.0, math.radians(8), 0.0, (0, 0, w.height_at(0, 0) + 1.5))
     w.render_lidar(which, pose)  # warm-up

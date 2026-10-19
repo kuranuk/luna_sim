@@ -99,7 +99,7 @@ def no_lights(w: World) -> World:
 
 # ---------------------------------------------------------------------------
 def demo_penumbra(report: dict[str, object]) -> None:
-    base = load_config(ROOT / "configs" / "south_pole_lowsun.yaml")
+    base = load_config(ROOT / "configs" / "south_pole_lowsun_stereo.yaml")
     cfg = base.model_copy(
         update={
             "sun": base.sun.model_copy(
@@ -154,7 +154,7 @@ def demo_penumbra(report: dict[str, object]) -> None:
 
 
 def demo_earthshine(report: dict[str, object]) -> None:
-    base = load_config(ROOT / "configs" / "south_pole_lowsun.yaml")
+    base = load_config(ROOT / "configs" / "south_pole_lowsun_stereo.yaml")
     sun = base.sun.model_copy(
         update={
             "mode": "manual",
@@ -294,7 +294,7 @@ def demo_dem(report: dict[str, object], dem_bin: Path) -> None:
 
 
 def demo_psr(report: dict[str, object]) -> None:
-    w = World.from_yaml(ROOT / "configs" / "south_pole_lowsun.yaml")
+    w = World.from_yaml(ROOT / "configs" / "south_pole_lowsun_stereo.yaml")
     t0 = datetime(2026, 1, 1, tzinfo=timezone.utc)
     tic = time.perf_counter()
     m = w.long_term_illumination(t0, t0 + timedelta(days=346.62), timedelta(hours=2), stride=4)
@@ -323,7 +323,7 @@ def demo_psr(report: dict[str, object]) -> None:
 
 
 def demo_imu(report: dict[str, object]) -> None:
-    base = load_config(ROOT / "configs" / "south_pole_lowsun.yaml")
+    base = load_config(ROOT / "configs" / "south_pole_lowsun_stereo.yaml")
     cfg: WorldConfig = base.model_copy(update={"imus": [ImuConfig(name="imu", rate_hz=200.0)]})
     w = World(cfg)
     w.set_waypoints([(4.0, 0.0), (4.0, 3.0), (0.0, 3.0)], 0.2)

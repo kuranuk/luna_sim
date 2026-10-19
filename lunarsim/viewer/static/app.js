@@ -146,6 +146,11 @@ async function openWorld(id) {
   for (const m of terrainMeshes) scene.add(m);
   const cfg = await api(`/worlds/${id}/config`);
   fillSelect('cam', cfg.cameras.map((c) => c.name));
+  // Camera UI only when the world has cameras (LiDAR-only worlds skip the slow renders).
+  const hasCam = cfg.cameras.length > 0;
+  for (const id of ['cam-row', 'auto-cam-row', 'camera-box', 'cam-hint']) $(id).hidden = !hasCam;
+  $('auto-cam').checked = hasCam;
+  $('lights').hidden = Object.keys(state.lights).length === 0;
   fillSelect('lidar', cfg.lidars.map((l) => l.name));
   $('lights').innerHTML = '';
   for (const [name, on] of Object.entries(state.lights)) {
