@@ -25,6 +25,7 @@ from scipy.special import i0e
 
 from lunarsim.config.schema import CraterConfig, CraterSFDConfig, CraterShapeConfig
 from lunarsim.core.rng import RngFactory
+from lunarsim.core.terrain._stamp_numba import stamp_craters_numba
 from lunarsim.core.terrain.heightmap import Heightmap
 from lunarsim.core.terrain.labels import Label
 
@@ -54,6 +55,8 @@ _REPLACE_IN, _REPLACE_OUT = 0.9, 1.1
 _RING_IN, _RING_OUT = 1.1, 1.6
 # Label bands [crater radii].
 _RIM_IN, _RIM_OUT = 0.85, 1.15
+# Stamp with the numba kernel when available (set False to force the numpy loop).
+USE_NUMBA = True
 
 
 @dataclass(frozen=True)
@@ -331,6 +334,24 @@ def stamp_craters(
     res = hm.resolution
     lab_min = 4.0 * res if label_min_diameter_m is None else label_min_diameter_m
     rmax_rel = shape.ejecta_extent_radii
+    if USE_NUMBA and stamp_craters_numba is not None and len(catalog):
+        n = len(catalog)
+        p_in = np.full((n, 3), np.nan) if planes is None else np.ascontiguousarray(planes, float)
+        p_out = np.empty((n, 3))
+        lab = labels if labels is not None else np.zeros((1, 1), dtype=np.uint8)
+        _, table = degraded_profile_table(shape)
+        stamp_craters_numba(
+            z, hm.x0, hm.y0, res,
+            np.ascontiguousarray(catalog.x, float), np.ascontiguousarray(catalog.y, float),
+            0.5 * np.asarray(catalog.diameter, float),
+            np.ascontiguousarray(catalog.degradation, float),
+            np.ascontiguousarray(table), rmax_rel, p_in, p_out, lab, labels is not None,
+            lab_min, _RING_IN, _RING_OUT, _REPLACE_IN, _REPLACE_OUT, _RIM_IN, _RIM_OUT,
+            int(Label.CRATER_INTERIOR), int(Label.CRATER_RIM),
+        )  # fmt: skip
+        if out_planes is not None:
+            out_planes[...] = p_out
+        return
     for k in range(len(catalog)):
         cx, cy = float(catalog.x[k]), float(catalog.y[k])
         R = 0.5 * float(catalog.diameter[k])

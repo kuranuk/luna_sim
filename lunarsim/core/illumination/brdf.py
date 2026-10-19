@@ -25,6 +25,7 @@ import numpy as np
 import numpy.typing as npt
 
 from lunarsim.config.schema import HapkeConfig, ReflectanceConfig
+from lunarsim.core._shade_numba import HAS_NUMBA, hapke_vectors
 
 __all__ = [
     "geometry_from_vectors",
@@ -37,6 +38,8 @@ __all__ = [
 ]
 
 FloatArray = npt.NDArray[np.float64]
+# Use the numba Hapke kernel in :func:`reflectance` when available (False: numpy only).
+USE_NUMBA = True
 
 
 def geometry_from_vectors(
@@ -176,10 +179,33 @@ def lambert(mu0: FloatArray, mu: FloatArray, albedo: float) -> FloatArray:
     return np.asarray(np.where(lit, albedo * mu0 / math.pi, 0.0), dtype=np.float64)
 
 
+def _hapke_params(p: HapkeConfig) -> FloatArray:
+    if p.filling_factor is not None:
+        y = 1.209 * p.filling_factor ** (2.0 / 3.0)
+        K = -math.log(1.0 - y) / y
+    else:
+        K = 1.0
+    return np.array(
+        [p.w, p.b, p.c, p.bs0, p.hs, p.bc0, p.hc, math.radians(p.theta_bar_deg), K],
+        dtype=np.float64,
+    )
+
+
 def reflectance(
     cfg: ReflectanceConfig, n: FloatArray, to_light: FloatArray, to_viewer: FloatArray
 ) -> FloatArray:
-    """Bidirectional reflectance [1/sr] for unit vectors (shape ``(..., 3)``)."""
+    """Bidirectional reflectance [1/sr] for unit vectors (shape ``(..., 3)``).
+
+    Hapke on ``(N, 3)`` arrays uses the numba kernel when available (same formulas).
+    """
+    if (
+        cfg.model == "hapke"
+        and USE_NUMBA
+        and HAS_NUMBA
+        and np.ndim(n) == 2
+        and np.shape(n) == np.shape(to_light) == np.shape(to_viewer)
+    ):
+        return hapke_vectors(n, to_light, to_viewer, _hapke_params(cfg.hapke))
     mu0, mu, cos_g, psi = geometry_from_vectors(n, to_light, to_viewer)
     if cfg.model == "hapke":
         return hapke(mu0, mu, cos_g, psi, cfg.hapke)

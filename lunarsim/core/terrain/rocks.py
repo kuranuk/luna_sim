@@ -21,9 +21,13 @@ import numpy.typing as npt
 
 from lunarsim.config.schema import RockConfig
 from lunarsim.core.rng import RngFactory
+from lunarsim.core.terrain._stamp_numba import stamp_rocks_numba
 from lunarsim.core.terrain.craters import CraterCatalog
 from lunarsim.core.terrain.heightmap import Heightmap
 from lunarsim.core.terrain.labels import Label
+
+# Stamp with the numba kernel when available (set False to force the numpy loop).
+USE_NUMBA = True
 
 __all__ = [
     "RockCatalog",
@@ -287,6 +291,17 @@ def stamp_rocks(
     z = hm.z
     ny, nx = z.shape
     res = hm.resolution
+    if USE_NUMBA and stamp_rocks_numba is not None and len(rocks):
+        lab = labels if labels is not None else np.zeros((1, 1), dtype=np.uint8)
+        stamp_rocks_numba(
+            z, hm.x0, hm.y0, res,
+            np.ascontiguousarray(rocks.x, float), np.ascontiguousarray(rocks.y, float),
+            np.ascontiguousarray(rocks.diameter, float),
+            np.ascontiguousarray(rocks.axis_ratio, float),
+            np.ascontiguousarray(rocks.orientation, float),
+            np.ascontiguousarray(rocks.height, float), lab, labels is not None, int(Label.ROCK),
+        )  # fmt: skip
+        return
     for k in range(len(rocks)):
         cx, cy = float(rocks.x[k]), float(rocks.y[k])
         a = 0.5 * float(rocks.diameter[k])

@@ -87,8 +87,36 @@ class MaxMipmap:
         return int(self.offset.size)
 
     @classmethod
+    def _build_numba(cls, z: FloatArray) -> MaxMipmap:
+        """Same pyramid as :meth:`build`, written level by level into one buffer."""
+        from lunarsim.core.terrain._stamp_numba import max_pool_numba
+
+        ny, nx = z.shape[0] - 1, z.shape[1] - 1  # quads
+        shapes = [(ny, nx)]
+        while shapes[-1][0] > 1 or shapes[-1][1] > 1:
+            h, w = shapes[-1]
+            shapes.append(((h + 1) // 2, (w + 1) // 2))
+        sizes = np.array([h * w for h, w in shapes], dtype=np.int64)
+        offset = np.concatenate([[0], np.cumsum(sizes)[:-1]]).astype(np.int64)
+        data = np.empty(int(sizes.sum()))
+        # Level 0: max of the 4 corner heights of each quad (= 2x2 max over nodes, stride 1).
+        max_pool_numba(np.ascontiguousarray(z), data[: sizes[0]].reshape(shapes[0]), 1)
+        for k in range(1, len(shapes)):
+            src = data[offset[k - 1] : offset[k - 1] + sizes[k - 1]].reshape(shapes[k - 1])
+            dst = data[offset[k] : offset[k] + sizes[k]].reshape(shapes[k])
+            max_pool_numba(src, dst, 2)
+        return cls(
+            data=data,
+            offset=offset,
+            nx=np.array([w for _, w in shapes], dtype=np.int64),
+            ny=np.array([h for h, _ in shapes], dtype=np.int64),
+        )
+
+    @classmethod
     def build(cls, z: FloatArray) -> MaxMipmap:
         """Build the pyramid for heights ``z`` of shape ``(ny, nx)``."""
+        if HAS_NUMBA:
+            return cls._build_numba(z)
         lvl = np.maximum(np.maximum(z[:-1, :-1], z[:-1, 1:]), np.maximum(z[1:, :-1], z[1:, 1:]))
         arrays = [lvl]
         while lvl.shape[0] > 1 or lvl.shape[1] > 1:
@@ -273,6 +301,68 @@ if HAS_NUMBA:
             i_out[k] = i
             j_out[k] = j
 
+    @numba.njit(cache=True, parallel=True)  # type: ignore[untyped-decorator]
+    def _trace_layered_nb(  # pragma: no cover - compiled
+        zn: FloatArray, pyrn: FloatArray, offn: IntArray, lnxn: IntArray, lnyn: IntArray,
+        x0n: float, y0n: float, resn: float, zminn: float, zmaxn: float,
+        zf: FloatArray, pyrf: FloatArray, offf: IntArray, lnxf: IntArray, lnyf: IntArray,
+        x0f: float, y0f: float, resf: float, zminf: float, zmaxf: float,
+        bx0: float, bx1: float, by0: float, by1: float,
+        o: FloatArray, d: FloatArray, t0: FloatArray, t1: FloatArray,
+        t_out: FloatArray, i_out: IntArray, j_out: IntArray, l_out: IntArray,
+    ) -> None:  # fmt: skip
+        """Two-layer nearest hit (same interval logic as LayeredCaster, fused per ray)."""
+        for k in numba.prange(o.shape[0]):
+            ox, oy, oz = o[k, 0], o[k, 1], o[k, 2]
+            dx, dy, dz = d[k, 0], d[k, 1], d[k, 2]
+            ta, tb = -math.inf, math.inf
+            for axis in range(2):
+                lo = bx0 if axis == 0 else by0
+                hi = bx1 if axis == 0 else by1
+                p = ox if axis == 0 else oy
+                dd = dx if axis == 0 else dy
+                if abs(dd) < 1e-15:
+                    inside_ax = lo <= p <= hi
+                    tmn = -math.inf if inside_ax else math.inf
+                    tmx = math.inf if inside_ax else -math.inf
+                else:
+                    a1 = (lo - p) / dd
+                    a2 = (hi - p) / dd
+                    tmn, tmx = min(a1, a2), max(a1, a2)
+                ta = max(ta, tmn)
+                tb = min(tb, tmx)
+            inside = ta <= tb
+            tk, ik, jk, lk = math.inf, -1, -1, -1
+            far_hi = min(ta, t1[k]) if inside else t1[k]
+            if far_hi > t0[k]:
+                th, ih, jh = _trace_one(
+                    zf, pyrf, offf, lnxf, lnyf, x0f, y0f, resf, zminf, zmaxf,
+                    ox, oy, oz, dx, dy, dz, t0[k], far_hi,
+                )  # fmt: skip
+                if th < tk:
+                    tk, ik, jk, lk = th, ih, jh, 1
+            if inside and not tk < math.inf:
+                n_lo, n_hi = max(ta, t0[k]), min(tb, t1[k])
+                if n_lo <= n_hi:
+                    th, ih, jh = _trace_one(
+                        zn, pyrn, offn, lnxn, lnyn, x0n, y0n, resn, zminn, zmaxn,
+                        ox, oy, oz, dx, dy, dz, n_lo, n_hi,
+                    )  # fmt: skip
+                    if th < tk:
+                        tk, ik, jk, lk = th, ih, jh, 0
+                f_lo = max(tb, t0[k])
+                if not tk < math.inf and f_lo < t1[k]:
+                    th, ih, jh = _trace_one(
+                        zf, pyrf, offf, lnxf, lnyf, x0f, y0f, resf, zminf, zmaxf,
+                        ox, oy, oz, dx, dy, dz, f_lo, t1[k],
+                    )  # fmt: skip
+                    if th < tk:
+                        tk, ik, jk, lk = th, ih, jh, 1
+            t_out[k] = tk
+            i_out[k] = ik
+            j_out[k] = jk
+            l_out[k] = lk
+
 
 # ----------------------------------------------------------------------------- numpy
 
@@ -427,6 +517,16 @@ class HeightfieldCaster:
         self.mip = MaxMipmap.build(heightmap.z)
         self._zmin = float(heightmap.z.min())
         self._zmax = float(heightmap.z.max())
+
+    @property
+    def zmin(self) -> float:
+        """Lowest terrain height [m]."""
+        return self._zmin
+
+    @property
+    def zmax(self) -> float:
+        """Highest terrain height [m]."""
+        return self._zmax
 
     @property
     def bounds_xy(self) -> tuple[float, float, float, float]:

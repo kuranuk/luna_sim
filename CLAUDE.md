@@ -85,6 +85,10 @@ R_BODY_FROM_CAMERA: x_cam -> -y_body, y_cam -> -z_body, z_cam -> +x_body
 - 依存追加は寛容ライセンス（MIT/BSD/Apache-2.0 等）のみ。Open3D は使わない（wheel 約 400 MB のため）。
   レイキャストは `core/raycast/` の抽象 + 自前の高さマップレイキャスタ（numba 任意）。
 - 再現性: 同じ seed + 設定 + `requirements.lock` のバージョンでビット一致。スレッド数で結果を変えない。
+- numba カーネル（`core/_shade_numba.py`, `terrain/_stamp_numba.py`, `raycast/heightfield.py`, `illumination/horizon.py`）は
+  numpy 版と同じ式・同じ処理順で書き、`tests/test_numba_kernels.py` で一致を検査する。`cache=True`、`fastmath` は使わない
+  （CPU 間でのビット一致のため）。比較用の切替: `craters.USE_NUMBA`, `rocks.USE_NUMBA`, `brdf.USE_NUMBA`,
+  `render.USE_NUMBA`, `LayeredCaster.fused`。
 
 ## 地形生成の順序と乱数ストリーム
 

@@ -15,6 +15,8 @@ from dataclasses import dataclass
 import numpy as np
 import numpy.typing as npt
 
+from lunarsim.core.terrain._stamp_numba import height_mesh_numba
+
 __all__ = ["Heightmap"]
 
 FloatArray = npt.NDArray[np.float64]
@@ -118,6 +120,14 @@ class Heightmap:
         """
         xa = np.asarray(x, dtype=np.float64)
         ya = np.asarray(y, dtype=np.float64)
+        if height_mesh_numba is not None and xa.shape == ya.shape and xa.size <= 4096:
+            # Small queries (rover contact): the numpy overhead dominates; same arithmetic.
+            out = np.empty(xa.size)
+            height_mesh_numba(
+                self.z, self.x0, self.y0, self.resolution,
+                np.ascontiguousarray(xa.ravel()), np.ascontiguousarray(ya.ravel()), out,
+            )  # fmt: skip
+            return out.reshape(xa.shape)
         ny, nx = self.shape
         u = np.clip((xa - self.x0) / self.resolution, 0.0, nx - 1.0)
         v = np.clip((ya - self.y0) / self.resolution, 0.0, ny - 1.0)

@@ -106,6 +106,7 @@ class TwoLayerTerrain:
     _detail_cache: dict[tuple[int, int], FloatArray] = field(
         init=False, repr=False, default_factory=dict
     )
+    _psd_cache: dict[str, FloatArray | None] = field(init=False, repr=False, default_factory=dict)
 
     def __post_init__(self) -> None:
         if not self.cfg.near.enabled:
@@ -132,6 +133,11 @@ class TwoLayerTerrain:
 
     # ------------------------------------------------------------------ spectra
     def _detail_psd_unit(self) -> FloatArray:
+        if self._psd_cache.get("unit") is None:
+            self._psd_cache["unit"] = self._detail_psd_unit_compute()
+        return self._psd_cache["unit"]
+
+    def _detail_psd_unit_compute(self) -> FloatArray:
         m, _ = self._tile_shape()
         r = self.cfg.near.resolution_m
         ky = sfft.fftfreq(m, d=r)
@@ -147,6 +153,12 @@ class TwoLayerTerrain:
         return 1.0 - _taper2(np.sqrt(k2), hk)
 
     def _detail_psd_synth(self) -> FloatArray:
+        """Detail PSD used for synthesis (constant per terrain; cached)."""
+        if self._psd_cache.get("synth") is None:
+            self._psd_cache["synth"] = self._detail_psd_synth_compute()
+        return self._psd_cache["synth"]
+
+    def _detail_psd_synth_compute(self) -> FloatArray:
         m, _ = self._tile_shape()
         r = self.cfg.near.resolution_m
         ky = sfft.fftfreq(m, d=r)
@@ -253,9 +265,13 @@ class TwoLayerTerrain:
         if self.psd_constant > 0.0:
             rng = self.rngs.generator(f"terrain/detail/tile/{a}/{b}")
             spec = sfft.rfft2(rng.standard_normal((m, m)))
-            spec *= spectral_amplitude(
-                self.psd_constant * self._detail_psd_synth(), nr.resolution_m
-            )
+            if self._psd_cache.get("amp") is None:
+                self._psd_cache["amp"] = spectral_amplitude(
+                    self.psd_constant * self._detail_psd_synth(), nr.resolution_m
+                )
+            amp = self._psd_cache["amp"]
+            assert amp is not None
+            spec *= amp
             f = sfft.irfft2(spec, s=(m, m))
             w1 = _tile_weight(m, nr.overlap_cells)
             f *= w1[:, None] * w1[None, :]

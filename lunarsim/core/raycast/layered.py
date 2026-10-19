@@ -11,7 +11,13 @@ from __future__ import annotations
 import numpy as np
 import numpy.typing as npt
 
+from lunarsim.core._shade_numba import HAS_NUMBA, box_interval
 from lunarsim.core.raycast.heightfield import HeightfieldCaster, RayHits
+
+try:
+    from lunarsim.core.raycast.heightfield import _trace_layered_nb
+except ImportError:  # pragma: no cover - numba not installed
+    _trace_layered_nb = None
 
 __all__ = ["LayeredCaster"]
 
@@ -22,6 +28,8 @@ def _box_interval(
     o: FloatArray, d: FloatArray, box: tuple[float, float, float, float]
 ) -> tuple[FloatArray, FloatArray]:
     """Parameter interval ``[ta, tb]`` where the xy track is inside ``box`` (ta > tb: never)."""
+    if HAS_NUMBA:
+        return box_interval(o, d, box)
     ta = np.full(o.shape[0], -np.inf)
     tb = np.full(o.shape[0], np.inf)
     for axis, lo, hi in ((0, box[0], box[1]), (1, box[2], box[3])):
@@ -39,6 +47,9 @@ def _box_interval(
 
 class LayeredCaster:
     """Nearest-hit ray casting over ``[near, far]`` layers (layer index 0 / 1)."""
+
+    # Use the fused numba kernel when both layers use numba (False: per-layer calls).
+    fused = True
 
     def __init__(self, near: HeightfieldCaster, far: HeightfieldCaster) -> None:
         self.near = near
@@ -62,6 +73,8 @@ class LayeredCaster:
         n = o.shape[0]
         t0 = np.broadcast_to(np.asarray(t_min, dtype=np.float64), (n,)).copy()
         t1 = np.broadcast_to(np.asarray(t_max, dtype=np.float64), (n,)).copy()
+        if self.fused and self.near.backend == "numba" and self.far.backend == "numba":
+            return self._intersect_fused(o, d, t0, t1)
         ta, tb = _box_interval(o, d, self.near.bounds_xy)
         inside = ta <= tb
 
@@ -93,6 +106,29 @@ class LayeredCaster:
         idx = np.flatnonzero(inside & (f_lo < t1) & ~np.isfinite(t))
         if idx.size:
             take(self.far.intersect(o[idx], d[idx], f_lo[idx], t1[idx]), idx, 1)
+        return RayHits(t=t, qi=qi, qj=qj, layer=layer)
+
+    def _intersect_fused(
+        self, o: FloatArray, d: FloatArray, t0: FloatArray, t1: FloatArray
+    ) -> RayHits:
+        """Same interval logic as the numpy path in one parallel numba kernel."""
+        n = o.shape[0]
+        t = np.empty(n)
+        qi = np.empty(n, dtype=np.int64)
+        qj = np.empty(n, dtype=np.int64)
+        layer = np.empty(n, dtype=np.int64)
+        if n:
+            a, b = self.near, self.far
+            ha, hb = a.heightmap, b.heightmap
+            bx = a.bounds_xy
+            _trace_layered_nb(
+                ha.z, a.mip.data, a.mip.offset, a.mip.nx, a.mip.ny,
+                ha.x0, ha.y0, ha.resolution, a.zmin, a.zmax,
+                hb.z, b.mip.data, b.mip.offset, b.mip.nx, b.mip.ny,
+                hb.x0, hb.y0, hb.resolution, b.zmin, b.zmax,
+                bx[0], bx[1], bx[2], bx[3],
+                np.ascontiguousarray(o), np.ascontiguousarray(d), t0, t1, t, qi, qj, layer,
+            )  # fmt: skip
         return RayHits(t=t, qi=qi, qj=qj, layer=layer)
 
     def occluded(

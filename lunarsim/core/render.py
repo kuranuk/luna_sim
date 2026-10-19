@@ -17,6 +17,7 @@ import numpy as np
 import numpy.typing as npt
 
 from lunarsim.config.schema import ReflectanceConfig
+from lunarsim.core._shade_numba import HAS_NUMBA, surface_normals
 from lunarsim.core.frames import Pose
 from lunarsim.core.illumination.brdf import reflectance
 from lunarsim.core.illumination.lights import LightState
@@ -30,6 +31,8 @@ from lunarsim.core.terrain.labels import Label
 __all__ = ["Caster", "RenderBuffers", "SurfaceSample", "render_rays", "sample_surface"]
 
 FloatArray = npt.NDArray[np.float64]
+# Use numba kernels for surface sampling when available (False: numpy only).
+USE_NUMBA = True
 
 
 class Caster(Protocol):
@@ -110,6 +113,11 @@ def sample_surface(
             continue
         hm = terrain.heightmap
         i, j = qi[sel], qj[sel]
+        if USE_NUMBA and HAS_NUMBA:
+            nrm[sel], lab[sel] = surface_normals(
+                hm.z, terrain.labels, hm.resolution, hm.x0, hm.y0, pts[sel], i, j
+            )
+            continue
         fu = np.clip((pts[sel, 0] - hm.x0) / hm.resolution - j, 0.0, 1.0)
         fv = np.clip((pts[sel, 1] - hm.y0) / hm.resolution - i, 0.0, 1.0)
         gx, gy = _node_gradient_bilinear(hm.z, hm.resolution, i, j, fu, fv)

@@ -174,7 +174,7 @@ def _horizon_kernel(
                 out[ii, jj, a] = math.atan(best) if best > -1e299 else -0.5 * math.pi
 
 
-_kernel = numba.njit(parallel=True, cache=False)(_horizon_kernel) if HAS_NUMBA else None
+_kernel = numba.njit(parallel=True, cache=True)(_horizon_kernel) if HAS_NUMBA else None
 
 
 def horizon_map(
@@ -304,7 +304,7 @@ def _illum_kernel(
             earth[i, j] = ecount
 
 
-_illum = numba.njit(parallel=True, cache=False)(_illum_kernel) if HAS_NUMBA else None
+_illum = numba.njit(parallel=True, cache=True)(_illum_kernel) if HAS_NUMBA else None
 
 
 def illumination_map(
