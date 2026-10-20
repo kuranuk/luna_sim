@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LunarSim Web</title>
+  <link rel="stylesheet" href="style.css">
+  <!--
+    Three.js r160 from jsDelivr (exact version + SRI) with the byte-identical copy in vendor/ as
+    fallback (offline / CDN blocked; boot.js switches once). ?local forces the vendored copy.
+  -->
+  <script>
+    (() => {
+      const CDN = 'https://cdn.jsdelivr.net/npm/three@0.160.0/';
+      let local = new URLSearchParams(location.search).has('local');
+      try { local = local || sessionStorage.getItem('lunarsim.web.local') === '1'; } catch (e) { /* storage blocked */ }
+      const three = local ? './vendor/three.module.js' : CDN + 'build/three.module.js';
+      const addons = local ? './vendor/addons/' : CDN + 'examples/jsm/';
+      const map = { imports: { three, 'three/addons/': addons } };
+      if (!local) {
+        map.integrity = {
+          [three]: 'sha384-61S/Nu32S3E5+n+KpCOTb2eRYps6fVKm+9Gz1QBvSePFthb46f063Aa/qe/lykFZ',
+          [addons + 'controls/OrbitControls.js']: 'sha384-qlO/ZugKPxAQUAvTlQoo0QECzxJIJySZmCF/DHdb2Xn/hHndFwX/vfUAC9Hbk6LP',
+        };
+      }
+      window.LUNARSIM_WEB = { local };
+      const s = document.createElement('script');
+      s.type = 'importmap';
+      s.textContent = JSON.stringify(map);
+      document.currentScript.after(s);
+    })();
+  </script>
+</head>
+<body>
+  <div id="view"></div>
+  <aside id="panel">
+    <h1>LunarSim <small>web</small></h1>
+    <section>
+      <h2>シナリオ</h2>
+      <label>プリセット <select id="preset"></select></label>
+      <label>範囲 <select id="size"></select></label>
+      <label>Seed <input id="seed" type="number" min="0" step="1"></label>
+      <button id="build" class="primary">地形を生成</button>
+      <p id="build-info" class="hint"></p>
+    </section>
+    <section>
+      <h2>太陽</h2>
+      <label><input type="radio" name="sunmode" value="manual" checked> 手動</label>
+      <label><input type="radio" name="sunmode" value="astro"> 日時（月面の緯度経度）</label>
+      <div id="sun-manual">
+        <label>方位 <input id="sun-az" type="range" min="0" max="359" step="1"><span id="sun-az-v"></span>°</label>
+        <label>高度 <input id="sun-el" type="range" min="-5" max="90" step="0.5"><span id="sun-el-v"></span>°</label>
+      </div>
+      <div id="sun-astro" hidden>
+        <label>UTC <input id="sun-utc" type="datetime-local" step="60"></label>
+        <p class="hint">緯度経度はシナリオの site（<span id="site"></span>）</p>
+      </div>
+    </section>
+    <section>
+      <h2>ローバー</h2>
+      <p class="hint">W/S 前後・A/D 旋回・Space 停止。「経路」をオンにして地形をクリックで経由点。</p>
+      <div class="row">
+        <button id="run">▶ 実行</button>
+        <select id="speed"><option value="1">×1</option><option value="2">×2</option><option value="5">×5</option><option value="10">×10</option></select>
+        <button id="reset">リセット</button>
+      </div>
+      <div class="row">
+        <label><input id="wp-mode" type="checkbox"> 経路</label>
+        <button id="wp-go">走行</button>
+        <button id="wp-clear">消去</button>
+      </div>
+      <label><input id="follow" type="checkbox" checked> 追従カメラ</label>
+    </section>
+    <section>
+      <h2>LiDAR</h2>
+      <div id="lidars"></div>
+    </section>
+    <section>
+      <h2>書き出し</h2>
+      <div class="row wrap">
+        <button data-export="ply">点群 PLY</button>
+        <button data-export="trajectory">軌跡 TUM</button>
+        <button data-export="imu">IMU CSV</button>
+        <button data-export="heightmap">高さ .npy</button>
+      </div>
+    </section>
+    <pre id="hud"></pre>
+    <p class="hint">影は CPU のレイキャストで計算（太陽円盤は点光源扱い）。表示の陰影と弱い環境光は見やすさのための近似です。</p>
+  </aside>
+  <div id="busy" hidden>計算中…</div>
+  <div id="error"></div>
+  <script type="module" src="boot.js"></script>
+</body>
+</html>

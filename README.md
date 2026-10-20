@@ -67,6 +67,23 @@ Three.js（r160, MIT）は jsDelivr CDN から読み込みます（版固定 + S
 W/A/S/D で走行、スライダで太陽方位・高度、チェックでライトを切り替えます。
 ビューア内の 3D 陰影は OpenGL の近似で、右上のカメラ画像がシミュレータの描画結果です。
 
+## ブラウザ版シミュレータ（`web/`）
+
+Python を入れずにブラウザだけで動く簡易版です（静的サイト、ビルド不要）。地形生成（フラクタル + クレーター +
+岩）、太陽（手動 / 日時）、ローバー（WASD・経由点追従）、SPAD フラッシュ LiDAR と回転式 LiDAR、IMU、
+影付き 3D 表示、書き出し（点群 PLY・軌跡 TUM・IMU CSV・高さ .npy）を含みます。
+シミュレーションは Web Worker で実時間（×1〜×10）で回します。
+
+```bash
+python -m http.server -d web 8080      # → http://127.0.0.1:8080/  （?local で同梱 Three.js）
+node --test web/tests/*.test.mjs        # JS の単体テスト（pytest からも実行: tests/test_web_sim.py）
+```
+
+Vercel では `vercel.json`（出力ディレクトリ `web/`、ビルドなし）で静的サイトとして配信できます
+（プロジェクト設定の Framework Preset は "Other"）。Python 版と同じアルゴリズムの移植ですが、乱数生成器が
+異なるため同じ seed でも地形はビット一致しません。航法誘導アルゴリズムは今後 Python から WebSocket で
+接続する予定です。
+
 ## データセット生成
 
 ```bash

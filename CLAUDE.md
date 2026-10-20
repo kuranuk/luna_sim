@@ -180,6 +180,17 @@ fractal (`terrain/fractal`) → tilt → craters (`terrain/craters/{count,size,p
   地形と運動は太陽に依存しないので姿勢は全変種で一致（テストで検査）。KITTI 姿勢は左カメラの T_c0_ck。
   ジョブ YAML の `scenario` はジョブ YAML からの相対パス。
 
+## ブラウザ版シミュレータ（`web/`, 2026-10 ユーザー判断）
+
+- シミュレータはブラウザ（JS、静的サイト、Vercel 配信可）、航法誘導は Python（PC 上）から WebSocket で接続する方針。
+- `web/js/sim/`（DOM 非依存、Node でテスト可）: rng（sfc32 + 名前付きストリーム、Python とビット一致しない）、fft、
+  terrain、raycast（max-mipmap、Python と同じ許容値）、sun（簡易暦、Python と 1e-7° で一致）、rover、imu、lidar、world。
+- `web/js/worker.js` が World と実時間ループを持ち、`main.js` は Three.js 描画と UI のみ。
+- `World.advance(dt, {scans})`: `'all'` = 予定時刻のスキャンを全部（決定的、閉ループ用）、`'latest'` = 実時間用
+  （遅れた分は最新 1 フレームだけ）。真値姿勢は 10 Hz で `out.poses`。
+- Three.js は Python ビューアと同じ CDN + SRI + `web/vendor/` 同梱（同一バイトを `tests/test_web_sim.py` で検査）。
+- テスト: `node --test web/tests/*.test.mjs`（pytest からも呼ぶ、node が無ければ skip）。
+
 ## 作業の進め方
 
 Phase ごとに 実装 → テスト → `scripts/demo_phaseN.py` 実行 → commit/push。
