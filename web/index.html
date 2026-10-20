@@ -72,6 +72,17 @@
       <label><input id="follow" type="checkbox" checked> 追従カメラ</label>
     </section>
     <section>
+      <h2>航法誘導（Python）</h2>
+      <p class="hint">PC で <code>lunarsim gnc</code> を起動して接続。接続中は Python の指令で走行します
+        （ロックステップ: 制御周期ごとに観測を送り、指令を待つ）。経由点は「走行」で Python に渡ります。</p>
+      <label>URL <input id="gnc-url" type="text" value="ws://127.0.0.1:8765/" spellcheck="false"></label>
+      <div class="row">
+        <label>制御周期 <select id="gnc-period"><option value="0.1">0.1 s</option><option value="0.2">0.2 s</option><option value="0.5">0.5 s</option></select></label>
+        <button id="gnc-connect">接続</button>
+      </div>
+      <p id="gnc-status" class="hint">未接続</p>
+    </section>
+    <section>
       <h2>LiDAR</h2>
       <div id="lidars"></div>
     </section>

@@ -29,7 +29,10 @@ scene.add(sunArrow);
 
 let terrainMesh = null, terrainInfo = null, rover = null, state = null, scenario = null;
 const clouds = {}, lidarStats = {};
-let trailLine = null, wpLine = null;
+let trailLine = null, wpLine = null, estLine = null, gnc = null;
+const estArrow = new THREE.ArrowHelper(new THREE.Vector3(1, 0, 0), new THREE.Vector3(), 1.2, 0xff5533, 0.4, 0.25);
+estArrow.visible = false;
+scene.add(estArrow);
 const waypoints = [], wpMarkers = new THREE.Group();
 scene.add(wpMarkers);
 
@@ -121,6 +124,35 @@ function updateTrail(trail) {
   trailLine.geometry.computeBoundingSphere();
 }
 
+// Python GNC estimate (orange) vs truth (rover + yellow trail).
+function updateEstimate(g) {
+  gnc = g;
+  if (estLine) { scene.remove(estLine); estLine = null; }
+  estArrow.visible = !!(g && g.estimate);
+  if (!estArrow.visible) return;
+  const e = g.estimate;
+  estArrow.position.set(e.x, e.y, e.z + 0.6);
+  estArrow.setDirection(new THREE.Vector3(Math.cos(e.yaw), Math.sin(e.yaw), 0));
+  if (g.estTrail.length > 1) {
+    const pos = new Float32Array(g.estTrail.length * 3);
+    g.estTrail.forEach((p, k) => pos.set([p[0], p[1], p[2] + 0.08], 3 * k));
+    estLine = new THREE.Line(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ color: 0xff5533 }));
+    estLine.geometry.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    scene.add(estLine);
+  }
+}
+
+function gncHud() {
+  if (!gnc) return '';
+  const lines = [`GNC ${gnc.state === 'connected' ? '接続' : '接続中…'} ${gnc.name}  #${gnc.seq}  ${gnc.rttMs.toFixed(0)} ms${gnc.status ? `  ${gnc.status}` : ''}`];
+  if (gnc.estimate) {
+    const e = gnc.estimate, t = gnc.truth;
+    const dyaw = ((e.yaw - t.yaw + 3 * Math.PI) % (2 * Math.PI)) - Math.PI;
+    lines.push(`推定誤差 位置 ${Math.hypot(e.x - t.x, e.y - t.y).toFixed(3)} m  高さ ${(e.z - t.z).toFixed(3)} m  方位 ${(dyaw / DEG).toFixed(2)}°`);
+  }
+  return lines.join('\n');
+}
+
 let lastRoverPos = null;
 function applyState(st) {
   state = st;
@@ -143,6 +175,7 @@ function applyState(st) {
     `cmd v ${r.command.v.toFixed(2)} m/s  ω ${(r.command.omega / DEG).toFixed(1)}°/s${r.waypointsRemaining ? `  残り経由点 ${r.waypointsRemaining}` : ''}`,
     r.warnings.length ? `⚠ ${r.warnings.join(', ')}` : '',
     `sun az ${st.sun.azDeg.toFixed(1)}°  el ${st.sun.elDeg.toFixed(2)}°`,
+    gncHud(),
     lid,
   ].filter(Boolean).join('\n');
 }
@@ -158,6 +191,7 @@ worker.onmessage = (ev) => {
     rover = makeRover(scenario.rover);
     for (const k of Object.keys(clouds)) { scene.remove(clouds[k]); delete clouds[k]; delete lidarStats[k]; }
     if (trailLine) { scene.remove(trailLine); trailLine = null; }
+    updateEstimate(null);
     lastRoverPos = null;
     applyState(m.state);
     const p = rover.position;
@@ -175,7 +209,8 @@ worker.onmessage = (ev) => {
     }
     window.lunarsimWeb.ready = true;
   } else if (m.type === 'sunlit') applySunlit(m);
-  else if (m.type === 'state') { applyState(m.state); updateTrail(m.trail); }
+  else if (m.type === 'state') { updateEstimate(m.gnc); applyState(m.state); updateTrail(m.trail); }
+  else if (m.type === 'gnc') gncEvent(m);
   else if (m.type === 'lidar') updateCloud(m);
   else if (m.type === 'export') {
     const url = URL.createObjectURL(new Blob([m.data], { type: m.mime }));
@@ -245,7 +280,7 @@ function setRunning(on) {
 }
 $('run').addEventListener('click', () => setRunning(!running));
 $('speed').addEventListener('change', () => worker.postMessage({ type: 'speed', speed: +$('speed').value }));
-$('reset').addEventListener('click', () => { worker.postMessage({ type: 'reset' }); if (trailLine) { scene.remove(trailLine); trailLine = null; } lastRoverPos = null; });
+$('reset').addEventListener('click', () => { worker.postMessage({ type: 'reset' }); if (trailLine) { scene.remove(trailLine); trailLine = null; } updateEstimate(null); lastRoverPos = null; });
 
 const keys = new Set();
 function sendKeys() {
@@ -292,7 +327,30 @@ $('wp-go').addEventListener('click', () => {
   worker.postMessage({ type: 'waypoints', points: waypoints.slice(), speed: scenario.rover.maxSpeed });
   setRunning(true);
 });
-$('wp-clear').addEventListener('click', () => { waypoints.length = 0; wpMarkers.clear(); drawWpLine(); });
+$('wp-clear').addEventListener('click', () => {
+  waypoints.length = 0; wpMarkers.clear(); drawWpLine();
+  worker.postMessage({ type: 'waypoints', points: [], speed: 0 });
+});
+
+// GNC: connect the worker to a Python `lunarsim gnc` server.
+const GNC_URL_KEY = 'lunarsim.web.gncUrl';
+let gncConnected = false;
+try { $('gnc-url').value = localStorage.getItem(GNC_URL_KEY) || $('gnc-url').value; } catch (e) { /* storage blocked */ }
+function gncConnect(on, url = $('gnc-url').value.trim()) {
+  if (on) {
+    try { localStorage.setItem(GNC_URL_KEY, url); } catch (e) { /* ignore */ }
+    worker.postMessage({ type: 'gnc', connect: true, url, period: +$('gnc-period').value });
+  } else worker.postMessage({ type: 'gnc', connect: false });
+}
+function gncEvent(m) {
+  const st = $('gnc-status');
+  if (m.event === 'connecting') { gncConnected = true; st.textContent = '接続中…'; }
+  else if (m.event === 'ready') { st.textContent = `接続: ${m.name}（▶ 実行で走行）`; $('error').textContent = ''; }
+  else if (m.event === 'closed') { gncConnected = false; st.textContent = `未接続${m.code !== 1000 && m.code !== 1005 ? `（切断 ${m.code}）` : ''}`; updateEstimate(null); }
+  else if (m.event === 'error') { $('error').textContent = m.message; if (m.paused) setRunning(false); }
+  $('gnc-connect').textContent = gncConnected ? '切断' : '接続';
+}
+$('gnc-connect').addEventListener('click', () => gncConnect(!gncConnected));
 
 for (const b of document.querySelectorAll('[data-export]')) {
   b.addEventListener('click', () => {
@@ -310,6 +368,9 @@ window.addEventListener('resize', resize);
 resize();
 renderer.setAnimationLoop(() => { controls.update(); renderer.render(scene, camera); });
 
-window.lunarsimWeb = { ready: false, get state() { return state; }, get lidar() { return lidarStats; }, worker, build, setRunning };
+window.lunarsimWeb = { ready: false, get state() { return state; }, get lidar() { return lidarStats; }, get gnc() { return gnc; },
+  worker, build, setRunning, gncConnect };
 presetChanged();
 build();
+const autoGnc = new URLSearchParams(location.search).get('gnc'); // e.g. ?gnc=ws://127.0.0.1:8765/
+if (autoGnc) { $('gnc-url').value = autoGnc; gncConnect(true, autoGnc); }

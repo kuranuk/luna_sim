@@ -9,7 +9,7 @@ h1 small { color: var(--muted); font-weight: normal; }
 h2 { font-size: 13px; margin: 10px 0 4px; color: var(--accent); }
 label { display: block; margin: 3px 0; }
 input[type=range] { width: 130px; vertical-align: middle; }
-input[type=number], select { background: #1c2230; color: var(--fg); border: 1px solid #39425a; border-radius: 4px; padding: 2px 4px; }
+input[type=number], input[type=text], select { background: #1c2230; color: var(--fg); border: 1px solid #39425a; border-radius: 4px; padding: 2px 4px; }
 button { background: #24324a; color: var(--fg); border: 1px solid #3c5070; border-radius: 4px; padding: 4px 8px; cursor: pointer; margin: 2px 2px 2px 0; }
 button:hover { background: #2e4060; }
 button.primary { background: #2f5ea8; border-color: #4a7ac8; }
@@ -22,3 +22,5 @@ button.primary { background: #2f5ea8; border-color: #4a7ac8; }
 #error { position: fixed; bottom: 8px; right: 8px; max-width: 50vw; color: #ff8a8a; font-size: 12px; white-space: pre-wrap; }
 [hidden] { display: none !important; }
 @media (max-width: 700px) { #panel { width: calc(100% - 16px); max-height: 45%; } }
+#gnc-url { width: 200px; }
+code { color: var(--accent); }
