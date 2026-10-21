@@ -1,7 +1,7 @@
 # Representative south-polar scenario (SPEC 4.1): sun a few degrees above the horizon,
 # long shadows. Two-layer terrain: 2 km x 2 km at 1 m + 100 m near patch at 5 cm.
 # Roughness / crater / rock values: see docs/references.md (several are sample values).
-# Sensors: LiDAR only (SPAD flash + 32-line spinning).
+# Sensors: monocular navcam + two headlights, LiDAR (SPAD flash + 32-line spinning).
 name: south_pole_lowsun
 seed: 2026
 site:
@@ -35,10 +35,20 @@ terrain:
     enabled: true
     size_m: 100.0
     resolution_m: 0.05
-# LiDAR only for now (cameras are slow, especially stereo: ~0.3 s per image, ~1.3 s per
-# pair with lights). The stereo navcam + headlights live in south_pole_lowsun_stereo.yaml.
-cameras: []
-lights: []
+# Monocular navcam (~0.3 s per image with lights). The stereo pair lives in
+# south_pole_lowsun_stereo.yaml.
+cameras:
+  - name: navcam             # generic sample geometry
+    intrinsics: {width: 640, height: 480, hfov_deg: 70.0}
+    sensor: {auto_exposure: true, ae_percentile: 99.5, ae_target_fraction: 0.8, bits: 12}
+    mount: {x_m: 0.5, y_m: 0.0, z_m: 1.0, pitch_deg: 12.0}
+lights:                      # two headlights (sample values, see SpotlightConfig)
+  - name: headlight_left
+    mount: {x_m: 0.6, y_m: 0.3, z_m: 0.4, pitch_deg: 15.0}
+    flux_lm: 3000.0
+  - name: headlight_right
+    mount: {x_m: 0.6, y_m: -0.3, z_m: 0.4, pitch_deg: 15.0}
+    flux_lm: 3000.0
 rover:
   kinematics: skid_steer
   wheels: 4

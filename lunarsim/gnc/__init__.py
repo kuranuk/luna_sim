@@ -5,6 +5,16 @@ browser simulator's 航法誘導 panel. See :mod:`lunarsim.gnc.examples`.
 """
 
 from .base import Gnc
-from .types import Command, ImuBatch, LidarScan, Mount, Observation, Pose, SimInfo
+from .types import CameraImage, Command, ImuBatch, LidarScan, Mount, Observation, Pose, SimInfo
 
-__all__ = ["Command", "Gnc", "ImuBatch", "LidarScan", "Mount", "Observation", "Pose", "SimInfo"]
+__all__ = [
+    "CameraImage",
+    "Command",
+    "Gnc",
+    "ImuBatch",
+    "LidarScan",
+    "Mount",
+    "Observation",
+    "Pose",
+    "SimInfo",
+]

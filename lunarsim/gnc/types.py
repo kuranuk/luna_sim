@@ -11,6 +11,7 @@ import math
 from dataclasses import dataclass, field
 from typing import Any
 
+import numpy as np
 import numpy.typing as npt
 
 
@@ -81,6 +82,8 @@ class SimInfo:
     imu_rate_hz: float | None
     imu_mount: Mount | None
     lidar_mounts: dict[str, Mount]
+    camera_mounts: dict[str, Mount]
+    cameras_available: bool
     max_speed: float
     max_yaw_rate: float
     waypoints: list[tuple[float, float]]
@@ -99,6 +102,10 @@ class SimInfo:
             ),
             imu_rate_hz=float(imu["rateHz"]) if imu else None,
             imu_mount=Mount.from_dict(imu.get("mount")) if imu else None,
+            camera_mounts={
+                cc["name"]: Mount.from_dict(cc.get("mount")) for cc in sc.get("cameras", [])
+            },
+            cameras_available=bool(info.get("camerasAvailable", False)),
             lidar_mounts={
                 lc["name"]: Mount.from_dict(lc.get("mount")) for lc in sc.get("lidars", [])
             },
@@ -140,11 +147,41 @@ class LidarScan:
 
 
 @dataclass
+class CameraImage:
+    """One camera frame at time ``t`` [s]: linear digital numbers, top row first.
+
+    image (H, W) uint16 in [0, 2^bits - 1] (Hapke surface + sun + headlights, shot / read noise,
+    auto exposure); pinhole intrinsics fx, fy, cx, cy [px] (OpenCV, pixel-centre origin, no
+    distortion); exposure [s]; the camera body is mounted as ``SimInfo.camera_mounts[name]``
+    (optical frame: x right, y down, z forward = body +x).
+    """
+
+    name: str
+    frame: int
+    t: float
+    image: npt.NDArray[Any]
+    bits: int
+    exposure: float
+    fx: float
+    fy: float
+    cx: float
+    cy: float
+    saturated: int = 0
+
+    @property
+    def K(self) -> npt.NDArray[np.float64]:
+        """3x3 camera matrix."""
+        return np.array([[self.fx, 0.0, self.cx], [0.0, self.fy, self.cy], [0.0, 0.0, 1.0]])
+
+
+@dataclass
 class Observation:
     """Everything the rover measured during the last control period (no ground truth).
 
-    ``wheel_v`` [m/s] / ``wheel_omega`` [rad/s] are wheel-odometry rates (the applied command,
-    i.e. without slip); ``waypoints`` are the goals set in the browser UI (world ENU [m]).
+    ``cameras`` holds the frames taken during the period (empty when the browser has no WebGL2
+    and in ``web/tools/headless.mjs``). ``wheel_v`` [m/s] / ``wheel_omega`` [rad/s] are
+    wheel-odometry rates (the applied command, i.e. without slip); ``waypoints`` are the goals
+    set in the browser UI (world ENU [m]).
     """
 
     t: float
@@ -154,6 +191,7 @@ class Observation:
     wheel_v: float
     wheel_omega: float
     waypoints: list[tuple[float, float]]
+    cameras: list[CameraImage] = field(default_factory=list)
 
 
 @dataclass

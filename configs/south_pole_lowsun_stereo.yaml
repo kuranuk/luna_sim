@@ -1,7 +1,7 @@
 # Representative south-polar scenario (SPEC 4.1): sun a few degrees above the horizon,
 # long shadows. Two-layer terrain: 2 km x 2 km at 1 m + 100 m near patch at 5 cm.
 # Roughness / crater / rock values: see docs/references.md (several are sample values).
-# Variant WITH the navcam stereo pair and headlights (south_pole_lowsun.yaml is LiDAR-only).
+# Variant WITH the navcam stereo pair and headlights (south_pole_lowsun.yaml has a monocular navcam).
 name: south_pole_lowsun_stereo
 seed: 2026
 site:

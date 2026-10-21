@@ -168,3 +168,31 @@ def test_closed_loop_with_headless_browser_sim(
     est = np.loadtxt(run / "estimate_tum.txt")
     assert truth.shape[1] == 8 and est.shape == (400, 8)
     assert truth[-1, 0] == pytest.approx(40.0)
+
+
+def test_session_passes_camera_images() -> None:
+    seen: list[Observation] = []
+
+    class Rec(Gnc):
+        def step(self, obs: Observation) -> Command:
+            seen.append(obs)
+            return Command(0.0, 0.0)
+
+    s = GncSession(Rec(), None, log=lambda _: None)
+    info = _info(camerasAvailable=True)
+    info["scenario"]["cameras"] = [
+        {"name": "navcam", "mount": {"x": 0.5, "z": 1.0, "pitchDeg": 12}}
+    ]  # type: ignore[index]
+    s.handle_text(json.dumps({"type": "hello", "protocol": PROTOCOL_VERSION, "info": info}))
+    assert s.gnc.info.cameras_available
+    assert s.gnc.info.camera_mounts["navcam"].rpy_deg == (0.0, 12.0, 0.0)
+    img = np.arange(12, dtype=np.uint16).reshape(3, 4)
+    cam = {"name": "navcam", "frame": 7, "t": 0.5, "width": 4, "height": 3, "bits": 12,
+           "exposure": 0.004, "saturated": 1, "fx": 2.0, "fy": 2.0, "cx": 1.5,
+           "cy": 1.0}  # fmt: skip
+    obs = {"type": "obs", "seq": 1, "t": 0.5, "dt": 0.1, "cameras": [cam]}
+    assert s.handle_binary(encode(obs, {"camera/navcam/7/image": img}))["type"] == "cmd"
+    c = seen[0].cameras[0]
+    assert (c.name, c.frame, c.bits, c.saturated) == ("navcam", 7, 12, 1)
+    np.testing.assert_array_equal(c.image, img)
+    np.testing.assert_array_equal(c.K, [[2, 0, 1.5], [0, 2, 1.0], [0, 0, 1]])

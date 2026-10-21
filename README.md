@@ -51,11 +51,11 @@ python scripts/bench.py         # 性能計測 → out/bench/bench.{json,md}
 
 ## ブラウザビューア
 
-現在の標準シナリオ `configs/south_pole_lowsun.yaml` は **LiDAR のみ**（カメラ描画、特にステレオが重いため。
-カメラ付きは `south_pole_lowsun_stereo.yaml`）。カメラの無いワールドではビューアのカメラ欄を表示しない。
+標準シナリオ `configs/south_pole_lowsun.yaml` は単眼 navcam + ヘッドライト 2 灯 + LiDAR
+（ステレオは描画が重いので `south_pole_lowsun_stereo.yaml`）。カメラの無いワールドではビューアのカメラ欄を表示しない。
 
 ```bash
-LUNARSIM_TOKEN=xxxx lunarsim serve --world configs/south_pole_lowsun.yaml          # LiDAR のみ
+LUNARSIM_TOKEN=xxxx lunarsim serve --world configs/south_pole_lowsun.yaml          # 単眼カメラ + ライト + LiDAR
 LUNARSIM_TOKEN=xxxx lunarsim serve --world configs/south_pole_lowsun_stereo.yaml   # ステレオカメラ + ライト付き
 # → http://127.0.0.1:8000/viewer/#token=xxxx を開く（トークンなしで起動した場合は #token 不要）
 ```
@@ -71,8 +71,16 @@ W/A/S/D で走行、スライダで太陽方位・高度、チェックでライ
 
 Python を入れずにブラウザだけで動く簡易版です（静的サイト、ビルド不要）。地形生成（フラクタル + クレーター +
 岩）、太陽（手動 / 日時）、ローバー（WASD・経由点追従）、SPAD フラッシュ LiDAR と回転式 LiDAR、IMU、
-影付き 3D 表示、書き出し（点群 PLY・軌跡 TUM・IMU CSV・高さ .npy）を含みます。
+単眼カメラ + ヘッドライト 2 灯、影付き 3D 表示、書き出し（点群 PLY・軌跡 TUM・IMU CSV・高さ .npy・
+画像 PGM 16 bit / PNG）を含みます。
 シミュレーションは Web Worker で実時間（×1〜×10）で回します。
+
+カメラ画像は GPU（WebGL2、Worker 内の OffscreenCanvas）で描画します: Hapke 反射（Python 版と同じ式）×
+太陽（影は LiDAR と同じ CPU レイキャストの格子点可視性を補間）+ ヘッドライト（配光・1/d²・影マップ）、
+センサモデル（自動露光・ショット / 読み出し雑音・12 bit 量子化）は Python 版と同じ。平面での検算で
+CPU の式と 0.6 % 以内で一致します。歪みなしのピンホール、環境光・地球照なし。GPU の浮動小数点演算のため
+画像は GPU 間でビット一致しません（雑音は seed で固定）。WebGL2 が無い環境ではカメラは無効になります。
+ソフトウェア描画（GPU なしの headless Chromium）では 1 枚数秒かかります。
 
 ```bash
 python -m http.server -d web 8080      # → http://127.0.0.1:8080/  （?local で同梱 Three.js）
@@ -105,6 +113,7 @@ class MyGnc(Gnc):
         # obs.lidar[k].points (M,4) xyzI    … センサ座標系 FLU、labels 254 = 誤検出
         # obs.wheel_v, obs.wheel_omega       … 車輪の回転から（すべりを含まない）
         # obs.waypoints                      … ブラウザで置いた経由点（ENU）
+        # obs.cameras[k].image (H,W) uint16  … 線形 DN、.K = 内部行列、.exposure [s]
         return Command(v=0.1, omega=0.0, estimate=self.pose, status="hello")
 ```
 
@@ -117,6 +126,7 @@ node web/tools/headless.mjs --seconds 60 --waypoints "5,0;5,5"   # ブラウザ�
 
 - サンプル（`lunarsim/gnc/examples.py`）: `DeadReckoning`（ジャイロで方位、加速度で傾き、車輪速度で距離。
   すべりとジャイロバイアスで推定がずれる）と、その推定で経由点を追う `WaypointGnc`。
+- カメラ画像は GPU のあるブラウザでのみ届きます（`info.cameras_available`）。`headless.mjs` には画像がありません。
 - 真値はアルゴリズムに渡さず、ブラウザの表示（推定 = オレンジの矢印と軌跡、真値 = 黄の軌跡、HUD に誤差）と
   ログ（`out/gnc/run_*/truth_tum.txt`, `estimate_tum.txt`, `commands.csv`, `info.json`）だけに使います。
 - 既定は 127.0.0.1 で待ち受け。それ以外のアドレスでは `--token`（URL に `?token=...`）が必須です。

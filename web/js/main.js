@@ -190,6 +190,8 @@ worker.onmessage = (ev) => {
     if (rover) scene.remove(rover);
     rover = makeRover(scenario.rover);
     for (const k of Object.keys(clouds)) { scene.remove(clouds[k]); delete clouds[k]; delete lidarStats[k]; }
+    for (const k of Object.keys(camStats)) delete camStats[k];
+    $('cam-panel').hidden = true; $('cameras').innerHTML = '';
     if (trailLine) { scene.remove(trailLine); trailLine = null; }
     updateEstimate(null);
     lastRoverPos = null;
@@ -211,6 +213,8 @@ worker.onmessage = (ev) => {
   } else if (m.type === 'sunlit') applySunlit(m);
   else if (m.type === 'state') { updateEstimate(m.gnc); applyState(m.state); updateTrail(m.trail); }
   else if (m.type === 'gnc') gncEvent(m);
+  else if (m.type === 'camera') showCamera(m);
+  else if (m.type === 'cameras') setupCameras(m);
   else if (m.type === 'lidar') updateCloud(m);
   else if (m.type === 'export') {
     const url = URL.createObjectURL(new Blob([m.data], { type: m.mime }));
@@ -219,6 +223,37 @@ worker.onmessage = (ev) => {
     setTimeout(() => URL.revokeObjectURL(url), 5000);
   } else if (m.type === 'error') { $('busy').hidden = true; $('error').textContent = m.message; console.error(m.message); }
 };
+
+// ------------------------------------------------------------------ camera (GPU-rendered in the worker)
+const camStats = {};
+function showCamera(m) {
+  const cv = $('cam-view');
+  if (cv.width !== m.width || cv.height !== m.height) { cv.width = m.width; cv.height = m.height; }
+  const img = new ImageData(m.width, m.height);
+  for (let k = 0, p = 0; k < m.pixels.length; k++, p += 4) { const g = m.pixels[k]; img.data[p] = img.data[p + 1] = img.data[p + 2] = g; img.data[p + 3] = 255; }
+  cv.getContext('2d').putImageData(img, 0, 0);
+  $('cam-panel').hidden = !$('cam-show').checked;
+  camStats[m.name] = m;
+  $('cam-info').textContent = `${m.name} #${m.frame}  t=${m.time.toFixed(1)} s  露光 ${(m.exposure * 1e3).toFixed(2)} ms  飽和 ${m.saturated}  GPU ${m.gpuMs.toFixed(0)} ms + センサ ${m.sensorMs.toFixed(0)} ms`;
+}
+function setupCameras(m) {
+  const box = $('cameras');
+  box.innerHTML = '';
+  if (!m.available) { box.innerHTML = `<p class="hint">カメラは無効: ${m.error || 'GPU なし'}</p>`; return; }
+  for (const c of m.cameras) {
+    const lab = document.createElement('label');
+    lab.innerHTML = `<input type="checkbox" checked> ${c.name}（${c.width}×${c.height}, ${c.rateHz} Hz）`;
+    lab.querySelector('input').addEventListener('change', (e) => worker.postMessage({ type: 'camera', name: c.name, on: e.target.checked }));
+    box.appendChild(lab);
+  }
+  if (m.lights.length) {
+    const lab = document.createElement('label');
+    lab.innerHTML = `<input type="checkbox" checked> ヘッドライト（${m.lights.length} 灯）`;
+    lab.querySelector('input').addEventListener('change', (e) => worker.postMessage({ type: 'lights', on: e.target.checked }));
+    box.appendChild(lab);
+  }
+}
+$('cam-show').addEventListener('change', () => { $('cam-panel').hidden = !$('cam-show').checked || !Object.keys(camStats).length; });
 
 // ------------------------------------------------------------------ controls
 for (const k of Object.keys(SCENARIOS)) $('preset').add(new Option(k, k));
@@ -355,7 +390,11 @@ $('gnc-connect').addEventListener('click', () => gncConnect(!gncConnected));
 for (const b of document.querySelectorAll('[data-export]')) {
   b.addEventListener('click', () => {
     const what = b.dataset.export;
-    const name = what === 'ply' ? (Object.keys(lidarStats)[0] || 'spad_flash') : undefined;
+    if (what === 'png') { // the 8-bit display image (gamma 2.2)
+      $('cam-view').toBlob((blob) => { const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'camera_preview.png'; a.click(); });
+      return;
+    }
+    const name = what === 'ply' ? (Object.keys(lidarStats)[0] || 'spad_flash') : what === 'pgm' ? (Object.keys(camStats)[0] || 'navcam') : undefined;
     worker.postMessage({ type: 'export', what, name });
   });
 }
@@ -368,7 +407,7 @@ window.addEventListener('resize', resize);
 resize();
 renderer.setAnimationLoop(() => { controls.update(); renderer.render(scene, camera); });
 
-window.lunarsimWeb = { ready: false, get state() { return state; }, get lidar() { return lidarStats; }, get gnc() { return gnc; },
+window.lunarsimWeb = { ready: false, get state() { return state; }, get lidar() { return lidarStats; }, get gnc() { return gnc; }, get camera() { return camStats; },
   worker, build, setRunning, gncConnect };
 presetChanged();
 build();
