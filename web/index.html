@@ -87,17 +87,27 @@
       <div id="lidars"></div>
     </section>
     <section>
+      <h2>カメラ</h2>
+      <div id="cameras"><p class="hint">準備中…</p></div>
+      <label><input id="cam-show" type="checkbox" checked> 画像を表示</label>
+      <p class="hint">GPU（WebGL2）で描画: Hapke 反射 + 太陽（影は LiDAR と同じレイキャスト）+ ヘッドライト（影付き）。
+        センサ雑音・自動露光は Python 版と同じモデル。表示はガンマ 2.2、データ（PGM・Python への観測）は線形 DN。</p>
+    </section>
+    <section>
       <h2>書き出し</h2>
       <div class="row wrap">
         <button data-export="ply">点群 PLY</button>
         <button data-export="trajectory">軌跡 TUM</button>
         <button data-export="imu">IMU CSV</button>
         <button data-export="heightmap">高さ .npy</button>
+        <button data-export="pgm">画像 PGM 16bit</button>
+        <button data-export="png">画像 PNG</button>
       </div>
     </section>
     <pre id="hud"></pre>
     <p class="hint">影は CPU のレイキャストで計算（太陽円盤は点光源扱い）。表示の陰影と弱い環境光は見やすさのための近似です。</p>
   </aside>
+  <div id="cam-panel" hidden><canvas id="cam-view" width="640" height="480"></canvas><div id="cam-info"></div></div>
   <div id="busy" hidden>計算中…</div>
   <div id="error"></div>
   <script type="module" src="boot.js"></script>

@@ -61,8 +61,15 @@ export function observationMessage(world, out, seq, dt, waypoints) {
     blobs.push({ name: p + 'points', data: f.scan.points, shape: [c, 4] }, { name: p + 'labels', data: f.scan.labels, shape: [c] },
       { name: p + 'time', data: f.scan.time, shape: [c] }, { name: p + 'ring', data: f.scan.ring, shape: [c] });
   }
+  const cameras = [];
+  for (const f of out.camera || []) {
+    const im = f.image, K = im.K;
+    cameras.push({ name: f.name, frame: f.frame, t: f.time, width: im.width, height: im.height, bits: im.bits, exposure: im.exposure,
+      saturated: im.saturated, fx: K.fx, fy: K.fy, cx: K.cx, cy: K.cy });
+    blobs.push({ name: `camera/${f.name}/${f.frame}/image`, data: im.dn, shape: [im.height, im.width] });
+  }
   const r = world.rover;
-  const header = { type: 'obs', seq, t: world.time, dt, wheel: { v: r.v, omega: r.omega }, waypoints, lidar, truth: truthPose(world) };
+  const header = { type: 'obs', seq, t: world.time, dt, wheel: { v: r.v, omega: r.omega }, waypoints, lidar, cameras, truth: truthPose(world) };
   return encode(header, blobs);
 }
 
@@ -75,6 +82,7 @@ export function truthPose(world) {
 export function helloMessage(world, controlPeriod, waypoints) {
   return { type: 'hello', protocol: PROTOCOL_VERSION, info: {
     controlPeriod, waypoints, initialPose: truthPose(world), time: world.time,
+    camerasAvailable: !!world.cameraRenderer, // false in Node / without WebGL2: no camera images in obs
     scenario: world.scenario, terrain: { n: world.terrain.n, res: world.terrain.res, x0: world.terrain.x0, y0: world.terrain.y0 },
   } };
 }

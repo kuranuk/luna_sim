@@ -1,7 +1,10 @@
 // World: terrain + sun + rover + sensors, advanced in fixed sub-steps (pure JS, no DOM).
 // Rover sub-steps end on IMU sample instants (as World.step in the Python simulator);
-// LiDAR frames are taken on the first sub-step boundary at or after their due time.
+// LiDAR and camera frames are taken on the first sub-step boundary at or after their due time.
+// Cameras need a GPU renderer injected as world.cameraRenderer (see ../gl/camera_gl.js); without
+// one (Node, no WebGL2) camera frames are skipped.
 
+import { expose, intrinsics } from './camera.js';
 import { compose, DEG, mountPose, quat } from './frames.js';
 import { Imu } from './imu.js';
 import { renderLidar, scanPattern } from './lidar.js';
@@ -18,6 +21,10 @@ export class World {
     this.caster = new HeightfieldCaster(this.terrain);
     this.buildMs = performance.now() - t0;
     this.lidars = this.scenario.lidars.map((cfg) => ({ cfg, pattern: scanPattern(cfg), frame: 0, next: 0, enabled: true }));
+    this.cameras = (this.scenario.cameras || []).map((cfg) => ({ cfg, K: intrinsics(cfg), frame: 0, next: 0, enabled: true }));
+    this.lightsOn = true;
+    this.cameraRenderer = null;
+    this.sunVersion = 0;
     this.imu = this.scenario.imu ? new Imu(this.scenario.imu, this.scenario.seed, this.scenario.site.lat) : null;
     this.setSunFromScenario();
     this.reset();
@@ -30,7 +37,7 @@ export class World {
     this.nextPoseLog = 0;
     this.follower = null;
     this.rover = new Rover(this.scenario.rover, this.height);
-    for (const l of this.lidars) { l.frame = 0; l.next = 0; }
+    for (const l of [...this.lidars, ...this.cameras]) { l.frame = 0; l.next = 0; }
     if (this.imu) { this.imu.reset(); this.imuSamples = [this.imu.push(this.sensorPose(this.scenario.imu.mount))]; }
     this.trail = [[this.rover.x, this.rover.y, this.rover.contact.t[2]]];
   }
@@ -40,6 +47,8 @@ export class World {
     this.sun = s.mode === 'astronomical'
       ? sunAstronomical(this.scenario.site.lat, this.scenario.site.lon, new Date(s.utc))
       : sunManual(s.azDeg, s.elDeg);
+    this.sunVersion++;
+    this._sunlitFull = null;
   }
 
   setSunManual(azDeg, elDeg) { Object.assign(this.scenario.sun, { mode: 'manual', azDeg, elDeg }); this.setSunFromScenario(); }
@@ -54,13 +63,13 @@ export class World {
 
   /**
    * Advance by dt [s]. Returns { imu: [samples], lidar: [{name, frame, time, pose, scan}],
-   * poses: [[t, x, y, z, qw, qx, qy, qz] at 10 Hz] }.
+   * camera: [{name, frame, time, pose, image}], poses: [[t, x, y, z, qw, qx, qy, qz] at 10 Hz] }.
    * scans: 'all' renders every due LiDAR frame at its sub-step (deterministic, for closed-loop
    * runs); 'latest' renders at most one frame per LiDAR at the end of the call and skips the
    * missed slots (interactive real-time use); false renders none.
    */
   advance(dt, { control = 0.1, scans = 'all' } = {}) {
-    const out = { imu: [], lidar: [], poses: [] };
+    const out = { imu: [], lidar: [], camera: [], poses: [] };
     const h = this.imu ? this.imu.period : 0.01;
     let remaining = dt;
     while (remaining > 1e-12) {
@@ -83,25 +92,40 @@ export class World {
         out.poses.push([this.time, ...this.rover.contact.t, ...quat(this.rover.contact.R)]);
         this.nextPoseLog += 0.1;
       }
-      if (scans === 'all') {
-        for (const l of this.lidars) {
-          if (!l.enabled || this.time + 1e-9 < l.next) continue;
-          out.lidar.push(this.scan(l));
-          l.next += 1 / l.cfg.rateHz;
-        }
-      }
+      if (scans === 'all') this.takeFrames(out, false);
     }
-    if (scans === 'latest') {
-      for (const l of this.lidars) {
-        if (!l.enabled || this.time + 1e-9 < l.next) continue;
-        out.lidar.push(this.scan(l));
-        const period = 1 / l.cfg.rateHz;
-        l.next += period * Math.max(1, Math.ceil((this.time + 1e-9 - l.next) / period));
-      }
-    }
+    if (scans === 'latest') this.takeFrames(out, true);
     const last = this.trail[this.trail.length - 1];
     if (Math.hypot(this.rover.x - last[0], this.rover.y - last[1]) > 0.05) this.trail.push([this.rover.x, this.rover.y, this.rover.contact.t[2]]);
     return out;
+  }
+
+  /** Frames of all due sensors; skipMissed: one frame per sensor, missed slots dropped. */
+  takeFrames(out, skipMissed) {
+    const cams = this.cameraRenderer ? this.cameras : [];
+    for (const [list, key, fn] of [[this.lidars, 'lidar', (l) => this.scan(l)], [cams, 'camera', (c) => this.shoot(c)]]) {
+      for (const l of list) {
+        if (!l.enabled || this.time + 1e-9 < l.next) continue;
+        out[key].push(fn(l));
+        const period = 1 / l.cfg.rateHz;
+        l.next += skipMissed ? period * Math.max(1, Math.ceil((this.time + 1e-9 - l.next) / period)) : period;
+      }
+    }
+  }
+
+  /** Render one camera frame (GPU radiance -> sensor model). */
+  shoot(c) {
+    const pose = this.sensorPose(c.cfg.mount);
+    const t0 = performance.now(), radiance = this.cameraRenderer.render(this, c, pose), t1 = performance.now();
+    const img = expose(radiance, c.cfg.sensor, c.cfg.name, c.frame, this.scenario.seed);
+    return { name: c.cfg.name, frame: c.frame++, time: this.time, pose, gpuMs: t1 - t0, sensorMs: performance.now() - t1,
+      image: { ...img, width: c.K.width, height: c.K.height, bits: c.cfg.sensor.bits, K: c.K } };
+  }
+
+  /** Full-resolution sun visibility per node (cached until the sun changes). */
+  sunlitFull() {
+    if (!this._sunlitFull) this._sunlitFull = this.sunlit(1);
+    return this._sunlitFull;
   }
 
   scan(l) {

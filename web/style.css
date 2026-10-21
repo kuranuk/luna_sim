@@ -24,3 +24,7 @@ button.primary { background: #2f5ea8; border-color: #4a7ac8; }
 @media (max-width: 700px) { #panel { width: calc(100% - 16px); max-height: 45%; } }
 #gnc-url { width: 200px; }
 code { color: var(--accent); }
+#cam-panel { position: fixed; top: 8px; right: 8px; width: min(420px, 40vw); background: var(--panel); border-radius: 8px; padding: 6px; }
+#cam-view { width: 100%; height: auto; display: block; image-rendering: auto; background: #000; }
+#cam-info { font-size: 11px; color: var(--muted); margin-top: 3px; }
+@media (max-width: 700px) { #cam-panel { top: auto; bottom: 8px; width: 45vw; } }

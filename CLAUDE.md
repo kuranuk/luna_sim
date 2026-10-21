@@ -34,7 +34,7 @@ python scripts/demo_phase8.py               # out/phase8/ に半影・地球照�
 python scripts/bench.py                     # out/bench/ に性能表
 lunarsim psr configs/south_pole_lowsun.yaml --stride 4   # 長期日照 / PSR マップ
 lunarsim serve                              # API サーバ（127.0.0.1:8000, /docs）
-lunarsim serve --world configs/south_pole_lowsun.yaml   # ビューア: /viewer/#token=...（LiDAR のみ）
+lunarsim serve --world configs/south_pole_lowsun.yaml   # ビューア: /viewer/#token=...
 lunarsim dataset configs/dataset_south_pole_sun_sweep.yaml   # データセット生成
 python -m http.server -d web 8080           # ブラウザ版シミュレータ（静的サイト）
 lunarsim gnc --gnc my_gnc.py:MyGnc          # Python の航法誘導をブラウザ版に接続（ws://127.0.0.1:8765/）
@@ -166,9 +166,8 @@ fractal (`terrain/fractal`) → tilt → craters (`terrain/craters/{count,size,p
 
 ## センサ構成（2026-10 ユーザー判断）
 
-- 当面は **LiDAR のみ**で運用: `configs/south_pole_lowsun.yaml` は `cameras: []`, `lights: []`。
-  カメラ（ステレオ navcam + ヘッドライト）付きは `south_pole_lowsun_stereo.yaml`（カメラを使うデモ・データセット・bench はこちら）。
-  カメラのコードは残す。スキーマの既定（`cam0`）は変えていない。
+- 2026-10-21 にカメラを復活: `configs/south_pole_lowsun.yaml` は単眼 navcam + ヘッドライト 2 灯 + LiDAR。
+  ステレオは `south_pole_lowsun_stereo.yaml`（ステレオを使うデモ・データセット・bench はこちら）。スキーマの既定（`cam0`）は変えていない。
 
 ## ビューア / データセット（Phase 7）
 
@@ -188,6 +187,12 @@ fractal (`terrain/fractal`) → tilt → craters (`terrain/craters/{count,size,p
 - `web/js/sim/`（DOM 非依存、Node でテスト可）: rng（sfc32 + 名前付きストリーム、Python とビット一致しない）、fft、
   terrain、raycast（max-mipmap、Python と同じ許容値）、sun（簡易暦、Python と 1e-7° で一致）、rover、imu、lidar、world。
 - `web/js/worker.js` が World と実時間ループを持ち、`main.js` は Three.js 描画と UI のみ。
+- カメラ（2026-10-21 ユーザー判断: ブラウザ版に GPU 描画の単眼 + ヘッドライト）: `web/js/gl/camera_gl.js`（Worker 内
+  OffscreenCanvas + WebGL2、Three.js は Worker では import map が効かないので `web/vendor/` を直接 import）が放射輝度を描画、
+  `sim/camera.js` の `expose`（Python の camera_noise.py と同じ式、乱数 `sensor/camera/{name}/frame/{idx:06d}`）が DN 化。
+  Hapke は `sim/brdf.js`（CPU 版 = Python と 1e-12 で一致、GLSL 版は同じ式）。太陽の影 = `World.sunlitFull()`
+  （格子点ごとの影レイ、LiDAR と同じキャスタ）をテクスチャで双一次補間、ライトの影 = 距離シャドウマップ。
+  World はレンダラを `world.cameraRenderer` で注入（Node では null → カメラフレームなし）。
 - `World.advance(dt, {scans})`: `'all'` = 予定時刻のスキャンを全部（決定的、閉ループ用）、`'latest'` = 実時間用
   （遅れた分は最新 1 フレームだけ）。真値姿勢は 10 Hz で `out.poses`。
 - Three.js は Python ビューアと同じ CDN + SRI + `web/vendor/` 同梱（同一バイトを `tests/test_web_sim.py` で検査）。

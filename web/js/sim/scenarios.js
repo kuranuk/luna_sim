@@ -1,4 +1,5 @@
-// Scenario presets (browser counterparts of configs/*.yaml; LiDAR-only sensor set).
+// Scenario presets (browser counterparts of configs/*.yaml): monocular navcam + two headlights,
+// SPAD flash + spinning LiDAR, IMU.
 // Physical defaults and their sources: lunarsim/config/schema.py, docs/references.md.
 
 const CRATER_SHAPE = {
@@ -42,9 +43,32 @@ const IMU = { // MEMS-class sample values (Kalibr/EuRoC convention), see ImuConf
   bandwidthHz: 5, filterOrder: 2, gravity: 1.6243, moonRotation: 2.6617e-6,
 };
 
+const CAMERAS = [
+  { // Monocular navcam (generic sample geometry, as configs/south_pole_lowsun.yaml)
+    name: 'navcam', rateHz: 2, width: 640, height: 480, hfovDeg: 70,
+    mount: { x: 0.5, y: 0, z: 1.0, rollDeg: 0, pitchDeg: 12, yawDeg: 0 },
+    sensor: { // CameraSensorConfig defaults (sample values; band_fraction TODO(ref) as in schema.py)
+      autoExposure: true, exposure: 5e-4, aePercentile: 99.5, aeTarget: 0.8, aeMaxExposure: 1.0,
+      fNumber: 4, pixelPitch: 5.5e-6, transmission: 0.9, quantumEfficiency: 0.5, wavelength: 600e-9,
+      bandFraction: 0.35, fullWell: 20000, readNoise: 5, darkCurrent: 10, bits: 12, gain: null, blackLevel: 0,
+    },
+  },
+];
+
+const LIGHT = { // SpotlightConfig defaults (generic sample values)
+  enabled: true, fluxLm: 3000, efficacyLmPerW: 300, bandFraction: 0.8, beamHalfAngleDeg: 15, fieldHalfAngleDeg: 30,
+};
+const LIGHTS = [
+  { ...LIGHT, name: 'headlight_left', mount: { x: 0.6, y: 0.3, z: 0.4, rollDeg: 0, pitchDeg: 15, yawDeg: 0 } },
+  { ...LIGHT, name: 'headlight_right', mount: { x: 0.6, y: -0.3, z: 0.4, rollDeg: 0, pitchDeg: 15, yawDeg: 0 } },
+];
+
+export const HAPKE = { w: 0.38, b: 0.25, c: 0.5, bs0: 1.5, hs: 0.05, bc0: 0.0, hc: 0.05, thetaBarDeg: 23.657 }; // HapkeConfig
+
 const base = (name, seed, terrain, sun, site) => ({
   name, seed, site, sun, terrain,
   rover: { ...ROVER }, lidars: structuredClone(LIDARS), imu: { ...IMU, mount: { ...IMU.mount } },
+  cameras: structuredClone(CAMERAS), lights: structuredClone(LIGHTS), reflectance: { ...HAPKE },
 });
 
 export const SCENARIOS = {
