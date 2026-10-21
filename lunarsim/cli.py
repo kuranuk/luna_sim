@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import time
 from pathlib import Path
 
@@ -129,6 +130,21 @@ def _cmd_dataset(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_gnc(args: argparse.Namespace) -> int:
+    from lunarsim.gnc.server import load_gnc_factory, run
+
+    factory = load_gnc_factory(args.gnc)
+    log_dir = None if args.no_log else Path(args.log_dir)
+    run(
+        factory,
+        host=args.host,
+        port=args.port,
+        token=args.token or os.environ.get("LUNARSIM_TOKEN") or None,
+        log_dir=log_dir,
+    )
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     """CLI main."""
     parser = argparse.ArgumentParser(prog="lunarsim")
@@ -164,6 +180,15 @@ def main(argv: list[str] | None = None) -> int:
     sv.add_argument("--no-cdn", action="store_true",
                     help="viewer uses only the vendored Three.js (no CDN requests)")  # fmt: skip
     sv.set_defaults(func=_cmd_serve)
+    gn = sub.add_parser("gnc", help="serve a Python GNC algorithm to the browser simulator (web/)")
+    gn.add_argument("--gnc", default="lunarsim.gnc.examples:WaypointGnc",
+                    help="module:Class or file.py:Class (a lunarsim.gnc.Gnc subclass)")  # fmt: skip
+    gn.add_argument("--host", default="127.0.0.1")
+    gn.add_argument("--port", type=int, default=8765)
+    gn.add_argument("--token", default=None, help="required off loopback (or env LUNARSIM_TOKEN)")
+    gn.add_argument("--log-dir", default="out/gnc", help="truth / estimate / command logs")
+    gn.add_argument("--no-log", action="store_true")
+    gn.set_defaults(func=_cmd_gnc)
     args = parser.parse_args(argv)
     return int(args.func(args))
 

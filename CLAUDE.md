@@ -36,6 +36,8 @@ lunarsim psr configs/south_pole_lowsun.yaml --stride 4   # 長期日照 / PSR �
 lunarsim serve                              # API サーバ（127.0.0.1:8000, /docs）
 lunarsim serve --world configs/south_pole_lowsun.yaml   # ビューア: /viewer/#token=...（LiDAR のみ）
 lunarsim dataset configs/dataset_south_pole_sun_sweep.yaml   # データセット生成
+python -m http.server -d web 8080           # ブラウザ版シミュレータ（静的サイト）
+lunarsim gnc --gnc my_gnc.py:MyGnc          # Python の航法誘導をブラウザ版に接続（ws://127.0.0.1:8765/）
 
 # 依存の更新（ネットあり）
 scripts/update_lock.sh                      # requirements*.in -> *.lock
@@ -179,6 +181,22 @@ fractal (`terrain/fractal`) → tilt → craters (`terrain/craters/{count,size,p
 - データセット `lunarsim/datasets/`: 1 つの World を `reset_dynamic()` して変種ごとに同じ軌跡を再生。
   地形と運動は太陽に依存しないので姿勢は全変種で一致（テストで検査）。KITTI 姿勢は左カメラの T_c0_ck。
   ジョブ YAML の `scenario` はジョブ YAML からの相対パス。
+
+## ブラウザ版シミュレータ（`web/`, 2026-10 ユーザー判断）
+
+- シミュレータはブラウザ（JS、静的サイト、Vercel 配信可）、航法誘導は Python（PC 上）から WebSocket で接続する方針。
+- `web/js/sim/`（DOM 非依存、Node でテスト可）: rng（sfc32 + 名前付きストリーム、Python とビット一致しない）、fft、
+  terrain、raycast（max-mipmap、Python と同じ許容値）、sun（簡易暦、Python と 1e-7° で一致）、rover、imu、lidar、world。
+- `web/js/worker.js` が World と実時間ループを持ち、`main.js` は Three.js 描画と UI のみ。
+- `World.advance(dt, {scans})`: `'all'` = 予定時刻のスキャンを全部（決定的、閉ループ用）、`'latest'` = 実時間用
+  （遅れた分は最新 1 フレームだけ）。真値姿勢は 10 Hz で `out.poses`。
+- Three.js は Python ビューアと同じ CDN + SRI + `web/vendor/` 同梱（同一バイトを `tests/test_web_sim.py` で検査）。
+- テスト: `node --test web/tests/*.test.mjs`（pytest からも呼ぶ、node が無ければ skip）。
+- GNC（`lunarsim/gnc`, `web/js/gnc/`）: Python が WebSocket サーバ（`lunarsim gnc`、既定 127.0.0.1:8765、
+  非ループバックはトークン必須）、ブラウザの Worker がクライアント。ロックステップ: `advance(period, {scans: 'all'})`
+  → バイナリ観測（"LSG1" + JSON ヘッダ + 8 バイト境界の配列、両言語の protocol で同じ形式）→ JSON の cmd（seq 一致のみ採用）。
+  hello は接続時・reset・build で送り直し、Python 側は `Gnc.reset` を呼ぶ。真値はアルゴリズムに渡さずログと表示だけ。
+  ブラウザなしの閉ループは `web/tools/headless.mjs`（`tests/test_gnc.py` で使用）。
 
 ## 作業の進め方
 

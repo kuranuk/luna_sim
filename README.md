@@ -67,6 +67,66 @@ Three.js（r160, MIT）は jsDelivr CDN から読み込みます（版固定 + S
 W/A/S/D で走行、スライダで太陽方位・高度、チェックでライトを切り替えます。
 ビューア内の 3D 陰影は OpenGL の近似で、右上のカメラ画像がシミュレータの描画結果です。
 
+## ブラウザ版シミュレータ（`web/`）
+
+Python を入れずにブラウザだけで動く簡易版です（静的サイト、ビルド不要）。地形生成（フラクタル + クレーター +
+岩）、太陽（手動 / 日時）、ローバー（WASD・経由点追従）、SPAD フラッシュ LiDAR と回転式 LiDAR、IMU、
+影付き 3D 表示、書き出し（点群 PLY・軌跡 TUM・IMU CSV・高さ .npy）を含みます。
+シミュレーションは Web Worker で実時間（×1〜×10）で回します。
+
+```bash
+python -m http.server -d web 8080      # → http://127.0.0.1:8080/  （?local で同梱 Three.js）
+node --test web/tests/*.test.mjs        # JS の単体テスト（pytest からも実行: tests/test_web_sim.py）
+```
+
+Vercel では `vercel.json`（出力ディレクトリ `web/`、ビルドなし）で静的サイトとして配信できます
+（プロジェクト設定の Framework Preset は "Other"）。Python 版と同じアルゴリズムの移植ですが、乱数生成器が
+異なるため同じ seed でも地形はビット一致しません。
+
+### 航法誘導を Python で書く（`lunarsim gnc`）
+
+シミュレータはブラウザ、航法誘導（GNC）は手元の Python で動かし、WebSocket でつなぎます。
+ブラウザは**ロックステップ**で動きます: 制御周期（既定 0.1 s）だけ進める → 観測（IMU・LiDAR・車輪オドメトリ・
+経由点）を Python に送る → 指令 (v, ω) と推定姿勢を受け取る → 次の周期。Python の処理時間に依らず結果は同じです。
+
+```python
+# my_gnc.py
+from lunarsim.gnc import Command, Gnc, Observation, SimInfo
+
+
+class MyGnc(Gnc):
+    name = "my-gnc"
+
+    def reset(self, info: SimInfo) -> None:  # 接続時・リセット時・地形の再生成時
+        self.info, self.pose = info, info.initial_pose  # 初期姿勢は既知
+
+    def step(self, obs: Observation) -> Command:  # 制御周期ごと
+        # obs.imu.t/gyro/accel (N,), (N,3)  … IMU 座標系
+        # obs.lidar[k].points (M,4) xyzI    … センサ座標系 FLU、labels 254 = 誤検出
+        # obs.wheel_v, obs.wheel_omega       … 車輪の回転から（すべりを含まない）
+        # obs.waypoints                      … ブラウザで置いた経由点（ENU）
+        return Command(v=0.1, omega=0.0, estimate=self.pose, status="hello")
+```
+
+```bash
+pip install -e ".[server]"                       # websockets
+lunarsim gnc --gnc my_gnc.py:MyGnc               # 既定: lunarsim.gnc.examples:WaypointGnc
+# → ブラウザの「航法誘導（Python）」で URL ws://127.0.0.1:8765/ に接続 → 経由点を置いて「走行」→ ▶ 実行
+node web/tools/headless.mjs --seconds 60 --waypoints "5,0;5,5"   # ブラウザなしで同じ閉ループ（バッチ評価）
+```
+
+- サンプル（`lunarsim/gnc/examples.py`）: `DeadReckoning`（ジャイロで方位、加速度で傾き、車輪速度で距離。
+  すべりとジャイロバイアスで推定がずれる）と、その推定で経由点を追う `WaypointGnc`。
+- 真値はアルゴリズムに渡さず、ブラウザの表示（推定 = オレンジの矢印と軌跡、真値 = 黄の軌跡、HUD に誤差）と
+  ログ（`out/gnc/run_*/truth_tum.txt`, `estimate_tum.txt`, `commands.csv`, `info.json`）だけに使います。
+- 既定は 127.0.0.1 で待ち受け。それ以外のアドレスでは `--token`（URL に `?token=...`）が必須です。
+- Vercel など https のページから `ws://127.0.0.1` への接続は Chrome / Edge / Firefox で可能です
+  （Chrome はローカルネットワークへのアクセス許可を求めることがあります）。Safari で繋がらない場合は
+  `python -m http.server -d web` でローカル配信したページを使ってください。
+- 速度は LiDAR の描画で決まります（ロックステップでは全フレームを描画）。速く回したいときは LiDAR を切ってください。
+- 通信形式: JSON テキスト（hello / ready / cmd / error）+ バイナリ観測（`lunarsim/gnc/protocol.py` と
+  `web/js/gnc/protocol.js`）。
+
 ## データセット生成
 
 ```bash
