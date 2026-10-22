@@ -57,13 +57,13 @@ function poissonThreshold(lam, tail) { // smallest k with P(X >= k) <= tail, X ~
 /**
  * Simulate one frame. pose = T_world_sensor {R, t}; sun = { dir, el } or null.
  * Returns { points: Float32Array N*4 (x, y, z, intensity; sensor frame), world: Float32Array N*3,
- * labels: Uint8Array, ring, time, count, beams }.
+ * labels: Uint8Array, ring, time, beam (Uint32Array: beam / pixel index, flash: row * width + col), count, beams }.
  */
 export function renderLidar(cfg, pattern, pose, hm, caster, sun, frameIndex, seed) {
   const r = rng(seed, `sensor/lidar/${cfg.name}/frame/${String(frameIndex).padStart(6, '0')}`);
   const nb = pattern.n, dirs = pattern.dirs, o = pose.t;
   const pts = new Float32Array(nb * 4), wpts = new Float32Array(nb * 3), lab = new Uint8Array(nb);
-  const ring = new Uint16Array(nb), time = new Float32Array(nb);
+  const ring = new Uint16Array(nb), time = new Float32Array(nb), beam = new Uint32Array(nb);
   let m = 0;
   const spad = cfg.model === 'spad' ? cfg.spad : null;
   let K = 0, bgK = 0, nBins = 0, peakFrac = 0, sigmaT = 0;
@@ -116,10 +116,10 @@ export function renderLidar(cfg, pattern, pose, hm, caster, sun, frameIndex, see
     if (!Number.isNaN(range)) {
       pts[4 * m] = ds[0] * range; pts[4 * m + 1] = ds[1] * range; pts[4 * m + 2] = ds[2] * range; pts[4 * m + 3] = inten;
       wpts[3 * m] = o[0] + dw[0] * range; wpts[3 * m + 1] = o[1] + dw[1] * range; wpts[3 * m + 2] = o[2] + dw[2] * range;
-      lab[m] = label; ring[m] = pattern.ring[b]; time[m] = pattern.time[b];
+      lab[m] = label; ring[m] = pattern.ring[b]; time[m] = pattern.time[b]; beam[m] = b;
       m++;
     }
   }
   return { points: pts.slice(0, 4 * m), world: wpts.slice(0, 3 * m), labels: lab.slice(0, m),
-    ring: ring.slice(0, m), time: time.slice(0, m), count: m, beams: nb };
+    ring: ring.slice(0, m), time: time.slice(0, m), beam: beam.slice(0, m), count: m, beams: nb };
 }

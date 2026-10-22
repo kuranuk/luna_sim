@@ -39,6 +39,8 @@ def observation_from_message(header: dict[str, Any], blobs: Blobs) -> Observatio
                 labels=blobs[p + "labels"],
                 time=blobs[p + "time"],
                 ring=blobs[p + "ring"],
+                beam=blobs.get(p + "beam", np.zeros(0, dtype=np.uint32)),
+                pattern=dict(s.get("pattern", {})),
             )
         )
     cams = [

@@ -82,6 +82,16 @@ CPU の式と 0.6 % 以内で一致します。歪みなしのピンホール、
 画像は GPU 間でビット一致しません（雑音は seed で固定）。WebGL2 が無い環境ではカメラは無効になります。
 ソフトウェア描画（GPU なしの headless Chromium）では 1 枚数秒かかります。
 
+画角は UI で変えられます（地形の再生成は不要、再生成・プリセット変更後も保持）: SPAD フラッシュの水平・垂直、
+回転式の仰角範囲、カメラの水平画角（垂直は縦横比から）。画素数は変わらないので、フラッシュを広げると
+1 画素の角度が大きくなります（1 画素あたりの信号は同じ、背景光が増える）。Python には各スキャンの
+`LidarScan.pattern`（その時点の画角）と `beam`（フラッシュは `行 * 幅 + 列`）、カメラは `K` で届きます。
+
+LiDAR のレイキャストは 3 通りで検証しています（`web/tests/lidar_raycast.test.mjs`, `tests/test_web_sim.py`）:
+独立に書いた参照実装（セル単位の走査 + 全三角形判定、max-mipmap なし）と全ビームで命中・非命中・距離が一致、
+Python 版のレイキャスタ（numba / numpy）とも 1e-9 m 以内で一致、平面では解析解と一致。日照判定の影レイ、
+格子線上・頂点通過・鉛直・水平・格子外からのレイも検査します。
+
 ```bash
 python -m http.server -d web 8080      # → http://127.0.0.1:8080/  （?local で同梱 Three.js）
 node --test web/tests/*.test.mjs        # JS の単体テスト（pytest からも実行: tests/test_web_sim.py）

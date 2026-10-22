@@ -23,7 +23,7 @@ function attachGpu() {
     for (const c of world.cameras) c.next = 1 / c.cfg.rateHz;
   }
   post({ type: 'cameras', available: !!gpu, error: gpuError,
-    cameras: world.cameras.map((c) => ({ name: c.cfg.name, width: c.K.width, height: c.K.height, rateHz: c.cfg.rateHz })),
+    cameras: world.cameras.map((c) => ({ name: c.cfg.name, width: c.K.width, height: c.K.height, rateHz: c.cfg.rateHz, hfovDeg: c.cfg.hfovDeg })),
     lights: (world.scenario.lights || []).map((l) => l.name) });
 }
 
@@ -261,7 +261,7 @@ self.onmessage = (ev) => {
       if (gpu && world.cameras.length) { world.cameraRenderer = gpu; gpu.setWorld(world); }
       log.traj = []; log.imu = world.imuSamples ? world.imuSamples.slice() : []; log.lastScan = {};
       const tp = terrainPayload(world);
-      post({ type: 'built', terrain: tp, buildMs: world.buildMs, lidars: world.lidars.map((l) => ({ name: l.cfg.name, beams: l.pattern.n, rateHz: l.cfg.rateHz })),
+      post({ type: 'built', terrain: tp, buildMs: world.buildMs, lidars: world.lidars.map((l) => ({ name: l.cfg.name, beams: l.pattern.n, rateHz: l.cfg.rateHz, cfg: l.cfg })),
         state: world.state() }, [tp.z.buffer, tp.labels.buffer]);
       sendSunlit();
       log.lastImage = {};
@@ -282,6 +282,10 @@ self.onmessage = (ev) => {
     else if (m.type === 'lidar') { const l = world.lidars.find((x) => x.cfg.name === m.name); if (l) l.enabled = m.on; }
     else if (m.type === 'camera') { const c = world.cameras.find((x) => x.cfg.name === m.name); if (c) c.enabled = m.on; }
     else if (m.type === 'lights') world.lightsOn = m.on;
+    else if (m.type === 'fov') {
+      const cfg = world.setFov(m.kind, m.name, m.params);
+      post({ type: 'fov', kind: m.kind, name: m.name, cfg });
+    }
     else if (m.type === 'reset') { world.reset(); log.traj = []; log.imu = world.imuSamples ? world.imuSamples.slice() : []; gncHello(); sendState(); }
     else if (m.type === 'export') { const r = exportData(m.what, m.name); post({ type: 'export', ...r }, r.data instanceof ArrayBuffer ? [r.data] : []); }
     else if (m.type === 'state') sendState();

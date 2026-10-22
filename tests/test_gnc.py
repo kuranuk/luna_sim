@@ -196,3 +196,35 @@ def test_session_passes_camera_images() -> None:
     assert (c.name, c.frame, c.bits, c.saturated) == ("navcam", 7, 12, 1)
     np.testing.assert_array_equal(c.image, img)
     np.testing.assert_array_equal(c.K, [[2, 0, 1.5], [0, 2, 1.0], [0, 0, 1]])
+
+
+def test_session_passes_lidar_beam_and_pattern() -> None:
+    seen: list[Observation] = []
+
+    class Rec(Gnc):
+        def step(self, obs: Observation) -> Command:
+            seen.append(obs)
+            return Command(0.0, 0.0)
+
+    s = GncSession(Rec(), None, log=lambda _: None)
+    s.handle_text(json.dumps({"type": "hello", "protocol": PROTOCOL_VERSION, "info": _info()}))
+    pattern = {"kind": "flash", "width": 160, "height": 120, "hfovDeg": 100.0, "vfovDeg": 75.0}
+    scan = {
+        "name": "spad_flash",
+        "frame": 3,
+        "t": 1.5,
+        "count": 2,
+        "beams": 19200,
+        "pattern": pattern,
+    }
+    p = "lidar/spad_flash/3/"
+    blobs = {
+        p + "points": np.zeros((2, 4), np.float32), p + "labels": np.zeros(2, np.uint8),
+        p + "time": np.zeros(2, np.float32), p + "ring": np.array([0, 119], np.uint16),
+        p + "beam": np.array([5, 19199], np.uint32),
+    }  # fmt: skip
+    obs = {"type": "obs", "seq": 1, "t": 1.5, "dt": 0.1, "lidar": [scan]}
+    assert s.handle_binary(encode(obs, blobs))["type"] == "cmd"
+    sc = seen[0].lidar[0]
+    assert sc.pattern["hfovDeg"] == 100.0
+    np.testing.assert_array_equal(sc.beam, [5, 19199])
