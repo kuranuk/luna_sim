@@ -49,12 +49,6 @@ function makeRover(cfg) {
     w.position.set(x * cfg.wheelbase / 2, y * (cfg.track / 2 + 0.05), -(cfg.originHeight - cfg.wheelRadius));
     g.add(w);
   }
-  const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.8, 8), mat);
-  mast.rotation.x = Math.PI / 2; mast.position.set(0.5, 0, 0.4);
-  g.add(mast);
-  const head = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.16, 0.1), new THREE.MeshLambertMaterial({ color: 0x55c08a }));
-  head.position.set(0.55, 0, 0.8);
-  g.add(head);
   scene.add(g);
   return g;
 }
@@ -209,15 +203,15 @@ worker.onmessage = (ev) => {
         if (clouds[l.name]) clouds[l.name].visible = e.target.checked;
       });
       $('lidars').appendChild(lab);
-      $('lidars').appendChild(fovControls('lidar', l.name, l.cfg));
     }
+    setupSensorTab(m.sensors);
     window.lunarsimWeb.ready = true;
   } else if (m.type === 'sunlit') applySunlit(m);
   else if (m.type === 'state') { updateEstimate(m.gnc); applyState(m.state); updateTrail(m.trail); }
   else if (m.type === 'gnc') gncEvent(m);
   else if (m.type === 'camera') showCamera(m);
   else if (m.type === 'cameras') setupCameras(m);
-  else if (m.type === 'fov') fovApplied(m);
+  else if (m.type === 'sensor') sensorApplied(m);
   else if (m.type === 'lidar') updateCloud(m);
   else if (m.type === 'export') {
     const url = URL.createObjectURL(new Blob([m.data], { type: m.mime }));
@@ -227,52 +221,105 @@ worker.onmessage = (ev) => {
   } else if (m.type === 'error') { $('busy').hidden = true; $('error').textContent = m.message; console.error(m.message); }
 };
 
-// ------------------------------------------------------------------ field of view (画角)
-// Number inputs per sensor; the worker clamps the values and answers with the applied config, which is
-// also written back into `scenario` so that a rebuild keeps it.
+// ------------------------------------------------------------------ sensor placement tab (取り付け位置・角度・画角)
+// One card per LiDAR / camera / light. Mount = body FLU (x forward, y left, z up; origin = body centre,
+// rover.originHeight above the ground), ZYX Euler angles with pitch > 0 = looking down, yaw > 0 = left.
+// The worker clamps the values and answers with the applied config, which is kept in sensorOverrides
+// so that rebuilds, preset changes and the exported config keep it.
 const FOV_FIELDS = {
   flash: [['hfovDeg', '水平'], ['vfovDeg', '垂直']],
   spinning: [['vMinDeg', '仰角 下'], ['vMaxDeg', '上']],
   camera: [['hfovDeg', '水平']],
 };
+const MOUNT_FIELDS = [['x', 'x 前', 'm'], ['y', 'y 左', 'm'], ['z', 'z 上', 'm'], ['rollDeg', 'ロール', '°'], ['pitchDeg', 'ピッチ 下+', '°'], ['yawDeg', 'ヨー 左+', '°']];
+const KIND_LABEL = { lidar: 'LiDAR', camera: 'カメラ', light: 'ライト' };
+let sensorCfgs = { lidar: [], camera: [], light: [] };
+const sensorOverrides = {}; // "kind:name" -> { mount, hfovDeg, ... }; matched by name on rebuild
+const fmt = (v) => (Math.round(v * 1000) / 1000).toString();
 function vfovText(cfg) { // camera: vertical angle from the aspect ratio (square pixels)
   const t = Math.tan(cfg.hfovDeg * DEG / 2) * cfg.height / cfg.width;
   return `垂直 ${(2 * Math.atan(t) / DEG).toFixed(1)}°`;
 }
-function fovControls(kind, name, cfg) {
-  const row = document.createElement('div');
-  row.className = 'row wrap fov';
-  row.dataset.sensor = `${kind}:${name}`;
-  const fields = FOV_FIELDS[kind === 'camera' ? 'camera' : cfg.kind] || [];
-  row.innerHTML = '画角 ' + fields.map(([k, label]) =>
-    `<label>${label} <input type="number" step="1" data-key="${k}" value="${(+cfg[k]).toFixed(1)}">°</label>`).join(' ') +
-    (kind === 'camera' ? ` <span class="hint">${vfovText(cfg)}</span>` : '');
-  for (const inp of row.querySelectorAll('input')) {
+function mountHint(kind, cfg) {
+  const h = cfg.mount.z + (scenario ? scenario.rover.originHeight : 0.5);
+  const fov = kind === 'camera' ? `、${vfovText(cfg)}` : '';
+  return `平地で地面から ${h.toFixed(2)} m、${cfg.mount.pitchDeg >= 0 ? '下向き' : '上向き'} ${Math.abs(cfg.mount.pitchDeg).toFixed(1)}°${fov}`;
+}
+function sensorCard(kind, cfg) {
+  const card = document.createElement('fieldset');
+  card.className = 'sensor-card';
+  card.dataset.sensor = `${kind}:${cfg.name}`;
+  const fov = FOV_FIELDS[kind === 'camera' ? 'camera' : kind === 'lidar' ? cfg.kind : ''] || [];
+  card.innerHTML = `<legend>${KIND_LABEL[kind]} ${cfg.name}${kind === 'lidar' ? `（${cfg.kind}）` : ''}</legend>
+    <div class="mount-grid">${MOUNT_FIELDS.map(([k, label, unit]) =>
+      `<label>${label}<input type="number" step="${unit === 'm' ? 0.05 : 1}" data-mount="${k}" value="${fmt(cfg.mount[k])}"></label>`).join('')}</div>
+    ${fov.length ? `<div class="row wrap">画角 ${fov.map(([k, label]) =>
+      `<label>${label} <input type="number" step="1" data-fov="${k}" value="${fmt(cfg[k])}">°</label>`).join(' ')}</div>` : ''}
+    <p class="hint">${mountHint(kind, cfg)}</p>`;
+  for (const inp of card.querySelectorAll('input')) {
     inp.addEventListener('change', () => {
-      const params = {};
-      for (const i of row.querySelectorAll('input')) params[i.dataset.key] = +i.value;
-      worker.postMessage({ type: 'fov', kind, name, params });
+      const params = { mount: {} };
+      for (const i of card.querySelectorAll('input[data-mount]')) params.mount[i.dataset.mount] = +i.value;
+      for (const i of card.querySelectorAll('input[data-fov]')) params[i.dataset.fov] = +i.value;
+      worker.postMessage({ type: 'sensor', kind, name: cfg.name, params });
     });
   }
-  return row;
+  return card;
 }
-function fovApplied(m) {
-  const row = document.querySelector(`.fov[data-sensor="${m.kind}:${m.name}"]`);
-  if (row) {
-    for (const i of row.querySelectorAll('input')) i.value = (+m.cfg[i.dataset.key]).toFixed(1);
-    const h = row.querySelector('.hint');
-    if (h) h.textContent = vfovText(m.cfg);
-  }
-  const o = {};
-  for (const k of ['hfovDeg', 'vfovDeg', 'vMinDeg', 'vMaxDeg']) if (m.cfg[k] !== undefined) o[k] = m.cfg[k];
-  fovOverrides[`${m.kind}:${m.name}`] = o;
+function setupSensorTab(sensors) {
+  sensorCfgs = structuredClone(sensors);
+  const box = $('mounts');
+  box.innerHTML = '';
+  for (const kind of ['lidar', 'camera', 'light']) for (const cfg of sensorCfgs[kind]) box.appendChild(sensorCard(kind, cfg));
+  updateSensorMarkers();
 }
-const fovOverrides = {}; // kept across rebuilds and presets (sensors are matched by name)
-function applyFovOverrides(sc) {
-  for (const [key, o] of Object.entries(fovOverrides)) {
-    const [kind, name] = key.split(':'), c = (kind === 'lidar' ? sc.lidars : sc.cameras || []).find((x) => x.name === name);
-    if (c) Object.assign(c, o);
+function sensorApplied(m) {
+  const list = sensorCfgs[m.kind], k = list.findIndex((c) => c.name === m.name);
+  if (k >= 0) list[k] = structuredClone(m.cfg);
+  const card = document.querySelector(`.sensor-card[data-sensor="${m.kind}:${m.name}"]`);
+  if (card) {
+    for (const i of card.querySelectorAll('input[data-mount]')) i.value = fmt(m.cfg.mount[i.dataset.mount]);
+    for (const i of card.querySelectorAll('input[data-fov]')) i.value = fmt(m.cfg[i.dataset.fov]);
+    card.querySelector('.hint').textContent = mountHint(m.kind, m.cfg);
   }
+  const o = { mount: { ...m.cfg.mount } };
+  for (const key of ['hfovDeg', 'vfovDeg', 'vMinDeg', 'vMaxDeg']) if (m.cfg[key] !== undefined) o[key] = m.cfg[key];
+  sensorOverrides[`${m.kind}:${m.name}`] = o;
+  updateSensorMarkers();
+}
+function applySensorOverrides(sc) {
+  for (const [key, o] of Object.entries(sensorOverrides)) {
+    const [kind, name] = key.split(':');
+    const c = ((kind === 'lidar' ? sc.lidars : kind === 'camera' ? sc.cameras : sc.lights) || []).find((x) => x.name === name);
+    if (c) { Object.assign(c, o, { mount: { ...c.mount, ...o.mount } }); }
+  }
+}
+// Sensor markers on the rover model: box + viewing direction (+x of the mount) + mast to the body.
+const MARK_COLOR = { lidar: 0x55c08a, camera: 0x6aa8ff, light: 0xffd166 };
+function updateSensorMarkers() {
+  if (!rover) return;
+  const old = rover.getObjectByName('sensors');
+  if (old) rover.remove(old);
+  const g = new THREE.Group();
+  g.name = 'sensors';
+  const poleMat = new THREE.MeshLambertMaterial({ color: 0xb8bec8 });
+  for (const kind of ['lidar', 'camera', 'light']) {
+    for (const cfg of sensorCfgs[kind]) {
+      const m = cfg.mount, color = MARK_COLOR[kind];
+      const holder = new THREE.Group();
+      holder.position.set(m.x, m.y, m.z);
+      holder.rotation.set(m.rollDeg * DEG, m.pitchDeg * DEG, m.yawDeg * DEG, 'ZYX');
+      holder.add(new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.12, 0.08), new THREE.MeshLambertMaterial({ color })));
+      holder.add(new THREE.ArrowHelper(new THREE.Vector3(1, 0, 0), new THREE.Vector3(), kind === 'light' ? 0.4 : 0.7, color, 0.15, 0.08));
+      g.add(holder);
+      if (m.z > 0.15) { // mast from the top of the body
+        const len = m.z - 0.0, pole = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, len, 8), poleMat);
+        pole.rotation.x = Math.PI / 2; pole.position.set(m.x, m.y, len / 2);
+        g.add(pole);
+      }
+    }
+  }
+  rover.add(g);
 }
 
 // ------------------------------------------------------------------ camera (GPU-rendered in the worker)
@@ -318,7 +365,6 @@ function setupCameras(m) {
       fig.hidden = !e.target.checked; updateCamPanel();
     });
     box.appendChild(lab);
-    box.appendChild(fovControls('camera', c.name, { kind: 'camera', hfovDeg: c.hfovDeg, width: c.width, height: c.height }));
   }
   if (m.lights.length) {
     const lab = document.createElement('label');
@@ -349,7 +395,7 @@ function loadConfig(obj, label) {
   let sc;
   try { sc = resolveConfig(obj); } catch (e) { $('cfg-info').textContent = ''; $('error').textContent = e.message; return false; }
   customConfig = { obj, base: obj.base || 'south_pole_lowsun', label };
-  for (const k of Object.keys(fovOverrides)) delete fovOverrides[k]; // the file is the new reference
+  for (const k of Object.keys(sensorOverrides)) delete sensorOverrides[k]; // the file is the new reference
   $('seed').value = sc.seed;
   $('site').textContent = `${sc.site.lat}°, ${sc.site.lon}°`;
   setSunUi(sc.sun);
@@ -360,7 +406,7 @@ function loadConfig(obj, label) {
 }
 function currentConfigText() { // the effective scenario (incl. field-of-view changes) as a complete config
   const sc = structuredClone(scenario);
-  applyFovOverrides(sc);
+  applySensorOverrides(sc);
   return scenarioToConfig(sc, customConfig ? customConfig.base : $('preset').value);
 }
 $('cfg-load').addEventListener('click', () => $('cfg-file').click());
@@ -408,7 +454,7 @@ function build() {
   scenario = customConfig ? resolveConfig(customConfig.obj) : structuredClone(SCENARIOS[$('preset').value]);
   if (SIZES[$('size').value]) Object.assign(scenario.terrain, SIZES[$('size').value]);
   scenario.seed = Math.max(0, Math.floor(+$('seed').value || 0));
-  applyFovOverrides(scenario);
+  applySensorOverrides(scenario);
   const astro = document.querySelector('input[name=sunmode]:checked').value === 'astro';
   scenario.sun = astro ? { ...scenario.sun, mode: 'astronomical', utc: `${$('sun-utc').value}:00Z` }
     : { ...scenario.sun, mode: 'manual', azDeg: +$('sun-az').value, elDeg: +$('sun-el').value };
@@ -536,6 +582,13 @@ function resize() {
 window.addEventListener('resize', resize);
 resize();
 renderer.setAnimationLoop(() => { controls.update(); renderer.render(scene, camera); });
+
+for (const b of document.querySelectorAll('#tabs button')) {
+  b.addEventListener('click', () => {
+    for (const x of document.querySelectorAll('#tabs button')) x.classList.toggle('active', x === b);
+    for (const p of document.querySelectorAll('[data-panel]')) p.hidden = p.dataset.panel !== b.dataset.tab;
+  });
+}
 
 window.lunarsimWeb = { ready: false, get state() { return state; }, get lidar() { return lidarStats; }, get gnc() { return gnc; }, get camera() { return camStats; },
   worker, build, setRunning, gncConnect };

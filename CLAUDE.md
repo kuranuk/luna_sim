@@ -198,6 +198,10 @@ fractal (`terrain/fractal`) → tilt → craters (`terrain/craters/{count,size,p
   `configs/south_pole_lowsun_surround.yaml`（標準の `south_pole_lowsun.yaml` は単眼のまま）。
 - 設定ファイル: `sim/config.js` の `resolveConfig`（base プリセット + 差分、センサ配列は名前で上書き / 新規はテンプレート、
   範囲検査はエラーを全部集めて投げる）。UI は読み込み・書き出し・JSON 編集・`?config=`。例は `web/configs/*.json`（テストで全部検証）。
+- センサ配置（2026-10 ユーザー判断）: SPAD フラッシュは地面から 3.7 m（mount z = 3.2、車体原点は地面から 0.5 m）、22° 下向き
+  （pitch +22、ユーザーの「ピッチ -22°」は下向きの意味と解釈）。Python の south_pole_lowsun*.yaml も同じ。
+  `World.setMount` / `setSensor`（pitch は ±90° にクランプ、roll / yaw は ±180° に巻き戻し、`mountVersion` でライト影マップを更新）。
+  UI は「センサ配置」タブ（`sensorOverrides` で再生成・書き出しに保持）、3D の車体にマストと向きの矢印を表示。
 - 画角: `World.setFov(kind, name, params)`（パターン / 内部行列を作り直す、値はクランプ）。UI の変更は `fovOverrides` で
   再生成後も保持。LiDAR の検証は `web/tests/ref_raycast.mjs`（独立参照実装）と `web/tools/dump_rays.mjs`（Python 比較）。
 - `World.advance(dt, {scans})`: `'all'` = 予定時刻のスキャンを全部（決定的、閉ループ用）、`'latest'` = 実時間用

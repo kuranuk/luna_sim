@@ -70,3 +70,26 @@ test('config: export -> import round trip and the shipped examples', () => {
   for (const f of files) resolveConfig(JSON.parse(readFileSync(new URL(f, dir), 'utf8')));
   assert.deepEqual(deepMerge({ a: { b: 1, c: [1, 2] } }, { a: { c: [3] } }), { a: { b: 1, c: [3] } });
 });
+
+test('sensor mounts: LiDAR on a 3.7 m mast looking 22° down; setMount / setSensor move sensors live', () => {
+  const sc = structuredClone(SCENARIOS.mare_plain);
+  sc.terrain.n = 128; sc.terrain.fractal.enabled = sc.terrain.craters.enabled = sc.terrain.rocks.enabled = false;
+  const w = new World(sc), l = w.lidars.find((x) => x.cfg.name === 'spad_flash');
+  const ground = w.height(w.rover.x, w.rover.y);
+  let p = w.sensorPose(l.cfg.mount);
+  assert.ok(Math.abs(p.t[2] - ground - 3.7) < 1e-9, `height ${p.t[2] - ground}`);
+  assert.ok(Math.abs(Math.asin(-p.R[6]) - 22 * Math.PI / 180) < 1e-9); // optical axis (+x) 22° below horizontal
+  const v0 = w.mountVersion;
+  const cfg = w.setSensor('camera', 'navcam', { mount: { z: 2.0, yawDeg: 45 }, hfovDeg: 80 });
+  assert.equal(cfg.mount.z, 2.0); assert.equal(cfg.mount.x, 0.5); assert.equal(cfg.hfovDeg, 80);
+  p = w.sensorPose(cfg.mount);
+  assert.ok(Math.abs(Math.atan2(p.R[3], p.R[0]) - Math.PI / 4) < 0.05); // looks 45° left of forward
+  w.setMount('light', 'headlight_left', { pitchDeg: 40 });
+  assert.equal(w.scenario.lights[0].mount.pitchDeg, 40);
+  assert.ok(w.mountVersion > v0);
+  assert.equal(w.setMount('camera', 'navcam', { yawDeg: 270, pitchDeg: 120 }).mount.yawDeg, -90);
+  assert.equal(w.cameras[0].cfg.mount.pitchDeg, 90);
+  assert.throws(() => w.setMount('lidar', 'nope', { z: 1 }));
+  assert.throws(() => w.setMount('lidar', 'spad_flash', { z: 'abc' }));
+  assert.equal(resolveConfig({ lidars: [{ name: 'spad_flash', mount: { z: 1.0 } }] }).lidars[0].mount.pitchDeg, 22);
+});

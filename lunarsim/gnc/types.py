@@ -149,6 +149,7 @@ class LidarScan:
     ring: npt.NDArray[Any]
     beam: npt.NDArray[Any] = field(default_factory=lambda: np.zeros(0, dtype=np.uint32))
     pattern: dict[str, Any] = field(default_factory=dict)
+    mount: Mount | None = None  # mount at that frame (it can be changed in the browser)
 
 
 @dataclass
@@ -172,6 +173,7 @@ class CameraImage:
     cx: float
     cy: float
     saturated: int = 0
+    mount: Mount | None = None  # camera body mount at that frame (it can be changed in the browser)
 
     @property
     def K(self) -> npt.NDArray[np.float64]:

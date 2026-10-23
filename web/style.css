@@ -38,3 +38,12 @@ details summary { cursor: pointer; color: var(--muted); margin: 4px 0; }
 @media (max-width: 700px) { #cam-panel { top: auto; bottom: 8px; width: 45vw; } }
 .fov { margin: 0 0 4px 20px; font-size: 12px; }
 .fov input[type=number] { width: 58px; }
+#tabs { display: flex; gap: 4px; margin: 0 0 6px; }
+#tabs button { flex: 1; margin: 0; background: #1c2230; }
+#tabs button.active { background: #2f5ea8; border-color: #4a7ac8; }
+.sensor-card { border: 1px solid #39425a; border-radius: 6px; margin: 6px 0; padding: 4px 8px 6px; }
+.sensor-card legend { color: var(--accent); padding: 0 4px; }
+.mount-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2px 6px; }
+.mount-grid label { font-size: 11px; color: var(--muted); margin: 0; white-space: nowrap; }
+.mount-grid input, .sensor-card input[data-fov] { width: 100%; max-width: 76px; display: block; }
+.sensor-card input[data-fov] { display: inline-block; width: 58px; }

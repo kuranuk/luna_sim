@@ -262,6 +262,7 @@ self.onmessage = (ev) => {
       log.traj = []; log.imu = world.imuSamples ? world.imuSamples.slice() : []; log.lastScan = {};
       const tp = terrainPayload(world);
       post({ type: 'built', terrain: tp, buildMs: world.buildMs, lidars: world.lidars.map((l) => ({ name: l.cfg.name, beams: l.pattern.n, rateHz: l.cfg.rateHz, cfg: l.cfg })),
+        sensors: { lidar: world.lidars.map((l) => l.cfg), camera: world.cameras.map((c) => c.cfg), light: world.scenario.lights || [] },
         state: world.state() }, [tp.z.buffer, tp.labels.buffer]);
       sendSunlit();
       log.lastImage = {};
@@ -282,9 +283,9 @@ self.onmessage = (ev) => {
     else if (m.type === 'lidar') { const l = world.lidars.find((x) => x.cfg.name === m.name); if (l) l.enabled = m.on; }
     else if (m.type === 'camera') { const c = world.cameras.find((x) => x.cfg.name === m.name); if (c) c.enabled = m.on; }
     else if (m.type === 'lights') world.lightsOn = m.on;
-    else if (m.type === 'fov') {
-      const cfg = world.setFov(m.kind, m.name, m.params);
-      post({ type: 'fov', kind: m.kind, name: m.name, cfg });
+    else if (m.type === 'sensor') {
+      const cfg = world.setSensor(m.kind, m.name, m.params);
+      post({ type: 'sensor', kind: m.kind, name: m.name, cfg });
     }
     else if (m.type === 'reset') { world.reset(); log.traj = []; log.imu = world.imuSamples ? world.imuSamples.slice() : []; gncHello(); sendState(); }
     else if (m.type === 'export') { const r = exportData(m.what, m.name); post({ type: 'export', ...r }, r.data instanceof ArrayBuffer ? [r.data] : []); }

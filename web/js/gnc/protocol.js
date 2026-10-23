@@ -60,7 +60,7 @@ export function observationMessage(world, out, seq, dt, waypoints) {
     const lc = (world.lidars.find((l) => l.cfg.name === f.name) || {}).cfg || {};
     const pattern = lc.kind === 'flash' ? { kind: 'flash', width: lc.width, height: lc.height, hfovDeg: lc.hfovDeg, vfovDeg: lc.vfovDeg }
       : { kind: lc.kind, channels: lc.channels, vMinDeg: lc.vMinDeg, vMaxDeg: lc.vMaxDeg, hResDeg: lc.hResDeg };
-    lidar.push({ name: f.name, frame: f.frame, t: f.time, count: c, beams: f.scan.beams, pattern });
+    lidar.push({ name: f.name, frame: f.frame, t: f.time, count: c, beams: f.scan.beams, pattern, mount: lc.mount });
     blobs.push({ name: p + 'points', data: f.scan.points, shape: [c, 4] }, { name: p + 'labels', data: f.scan.labels, shape: [c] },
       { name: p + 'time', data: f.scan.time, shape: [c] }, { name: p + 'ring', data: f.scan.ring, shape: [c] },
       { name: p + 'beam', data: f.scan.beam, shape: [c] });
@@ -69,7 +69,8 @@ export function observationMessage(world, out, seq, dt, waypoints) {
   for (const f of out.camera || []) {
     const im = f.image, K = im.K;
     cameras.push({ name: f.name, frame: f.frame, t: f.time, width: im.width, height: im.height, bits: im.bits, exposure: im.exposure,
-      saturated: im.saturated, fx: K.fx, fy: K.fy, cx: K.cx, cy: K.cy });
+      saturated: im.saturated, fx: K.fx, fy: K.fy, cx: K.cx, cy: K.cy,
+      mount: ((world.cameras.find((c) => c.cfg.name === f.name) || {}).cfg || {}).mount });
     blobs.push({ name: `camera/${f.name}/${f.frame}/image`, data: im.dn, shape: [im.height, im.width] });
   }
   const r = world.rover;

@@ -205,7 +205,7 @@ export class GpuCameraRenderer {
     u.uSunDir.value.set(...sun.dir);
     u.uSunE.value = sun.el > 0 ? sun.irradiance * cam.cfg.sensor.bandFraction : 0;
     // Light shadow maps depend only on the rover pose: cameras taken at the same instant share them.
-    const lightKey = `${world.time}|${world.lightsOn}|${world.rover.x}|${world.rover.y}|${world.rover.yaw}`;
+    const lightKey = `${world.time}|${world.lightsOn}|${world.mountVersion}|${world.rover.x}|${world.rover.y}|${world.rover.yaw}`;
     const fresh = lightKey !== this.lightKey;
     this.lightKey = lightKey;
     if (fresh) this.lights.forEach((l, k) => {

@@ -216,6 +216,7 @@ def test_session_passes_lidar_beam_and_pattern() -> None:
         "count": 2,
         "beams": 19200,
         "pattern": pattern,
+        "mount": {"x": 0.55, "z": 3.2, "pitchDeg": 22},
     }
     p = "lidar/spad_flash/3/"
     blobs = {
@@ -228,3 +229,5 @@ def test_session_passes_lidar_beam_and_pattern() -> None:
     sc = seen[0].lidar[0]
     assert sc.pattern["hfovDeg"] == 100.0
     np.testing.assert_array_equal(sc.beam, [5, 19199])
+    assert sc.mount is not None and sc.mount.xyz == (0.55, 0.0, 3.2)
+    assert sc.mount.rpy_deg == (0.0, 22.0, 0.0)

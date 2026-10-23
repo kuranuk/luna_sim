@@ -25,6 +25,7 @@ export class World {
     this.lightsOn = true;
     this.cameraRenderer = null;
     this.sunVersion = 0;
+    this.mountVersion = 0;
     this.imu = this.scenario.imu ? new Imu(this.scenario.imu, this.scenario.seed, this.scenario.site.lat) : null;
     this.setSunFromScenario();
     this.reset();
@@ -84,6 +85,32 @@ export class World {
     delete cam.cfg.fx; delete cam.cfg.fy;
     cam.K = intrinsics(cam.cfg);
     return cam.cfg;
+  }
+
+  /** Move a sensor or light: mount = { x, y, z [m] (body FLU), rollDeg, pitchDeg, yawDeg } (partial ok). */
+  setMount(kind, name, mount) {
+    const list = kind === 'lidar' ? this.lidars.map((l) => l.cfg) : kind === 'camera' ? this.cameras.map((c) => c.cfg)
+      : (this.scenario.lights || []);
+    const cfg = list.find((c) => c.name === name);
+    if (!cfg) throw new Error(`no ${kind} ${name}`);
+    for (const k of ['x', 'y', 'z', 'rollDeg', 'pitchDeg', 'yawDeg']) {
+      if (mount[k] === undefined) continue;
+      const v = +mount[k];
+      if (!Number.isFinite(v)) throw new Error(`${name}.mount.${k} = ${mount[k]}`);
+      cfg.mount[k] = k === 'pitchDeg' ? Math.min(90, Math.max(-90, v)) // pitch clamped, roll / yaw wrapped
+        : k.endsWith('Deg') ? ((v + 180) % 360 + 360) % 360 - 180 : Math.min(50, Math.max(-50, v));
+    }
+    this.mountVersion++;
+    return cfg;
+  }
+
+  /** setFov + setMount in one call (params may hold field-of-view keys and `mount`). */
+  setSensor(kind, name, params) {
+    const { mount, ...fov } = params;
+    if (mount) this.setMount(kind, name, mount);
+    if (kind !== 'light' && Object.keys(fov).length) this.setFov(kind, name, fov);
+    const list = kind === 'lidar' ? this.lidars.map((l) => l.cfg) : kind === 'camera' ? this.cameras.map((c) => c.cfg) : this.scenario.lights;
+    return list.find((c) => c.name === name);
   }
 
   setCommand(v, omega) { this.follower = null; this.rover.setCommand(v, omega); }

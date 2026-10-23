@@ -15,7 +15,7 @@ import numpy.typing as npt
 
 from .base import Gnc
 from .protocol import PROTOCOL_VERSION, decode
-from .types import CameraImage, Command, ImuBatch, LidarScan, Observation, SimInfo
+from .types import CameraImage, Command, ImuBatch, LidarScan, Mount, Observation, SimInfo
 
 Blobs = dict[str, npt.NDArray[Any]]
 
@@ -41,6 +41,7 @@ def observation_from_message(header: dict[str, Any], blobs: Blobs) -> Observatio
                 ring=blobs[p + "ring"],
                 beam=blobs.get(p + "beam", np.zeros(0, dtype=np.uint32)),
                 pattern=dict(s.get("pattern", {})),
+                mount=Mount.from_dict(s["mount"]) if s.get("mount") else None,
             )
         )
     cams = [
@@ -49,6 +50,7 @@ def observation_from_message(header: dict[str, Any], blobs: Blobs) -> Observatio
             image=blobs[f"camera/{c['name']}/{c['frame']}/image"], bits=int(c["bits"]),
             exposure=float(c["exposure"]), fx=float(c["fx"]), fy=float(c["fy"]),
             cx=float(c["cx"]), cy=float(c["cy"]), saturated=int(c.get("saturated", 0)),
+            mount=Mount.from_dict(c["mount"]) if c.get("mount") else None,
         )
         for c in header.get("cameras", [])
     ]  # fmt: skip

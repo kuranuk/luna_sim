@@ -35,6 +35,8 @@
   <div id="view"></div>
   <aside id="panel">
     <h1>LunarSim <small>web</small></h1>
+    <nav id="tabs"><button data-tab="sim" class="active">シミュレーション</button><button data-tab="sensors">センサ配置</button></nav>
+    <div data-panel="sim">
     <section>
       <h2>シナリオ</h2>
       <label>プリセット <select id="preset"></select></label>
@@ -118,6 +120,13 @@
         <button data-export="png">画像 PNG</button>
       </div>
     </section>
+    </div>
+    <div data-panel="sensors" hidden>
+      <p class="hint">取り付け位置・角度・画角（変更は即時反映、地形の再生成・設定の書き出しでも保持）。
+        座標は車体 FLU: x 前・y 左・z 上、原点は車体中心（平地で地面から 0.5 m）。角度は ZYX オイラーで
+        ピッチ + = 下向き、ヨー + = 左（0 = 前、180 = 後ろ）。3D 表示の車体に各センサの位置と向きを表示します。</p>
+      <div id="mounts"></div>
+    </div>
     <pre id="hud"></pre>
     <p class="hint">影は CPU のレイキャストで計算（太陽円盤は点光源扱い）。表示の陰影と弱い環境光は見やすさのための近似です。</p>
   </aside>
