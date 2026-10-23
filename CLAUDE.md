@@ -202,9 +202,11 @@ fractal (`terrain/fractal`) → tilt → craters (`terrain/craters/{count,size,p
   （pitch +22、ユーザーの「ピッチ -22°」は下向きの意味と解釈）。Python の south_pole_lowsun*.yaml も同じ。
   `World.setMount` / `setSensor`（pitch は ±90° にクランプ、roll / yaw は ±180° に巻き戻し、`mountVersion` でライト影マップを更新）。
   UI は「センサ配置」タブ（`sensorOverrides` で再生成・書き出しに保持）、3D の車体にマストと向きの矢印を表示。
-- フラッシュの投影（2026-10 ユーザー指摘「最下段は直線ではなく曲線のはず」）: `projection` = `equiangular`（既定、方位・仰角が等間隔）/
-  `pinhole`（従来）/ `equidistant`（f-θ）。JS `scanPattern` と Python `scan_pattern`（`flash_projection`、スキーマ既定は pinhole、
-  south_pole_lowsun*.yaml は equiangular）で同じ式。SPAD の視野立体角も投影ごと（`flashSolidAngle` / 画素ごとの omega）。
+- フラッシュの投影（2026-10 ユーザー指摘「最下段は直線ではなく曲線のはず」+ 参照図「各行が LiDAR 中心の同心円弧、横縁は放射状」）:
+  `projection` = `azel`（既定: 車体鉛直軸まわりの方位・仰角格子、ピッチを仰角・ヨーを方位に加算、ロール不使用 → パターンが mount に依存し
+  `setMount` で作り直す）/ `equiangular`（センサごと傾く）/ `pinhole`（従来）/ `equidistant`（f-θ）。JS `scanPattern` と Python
+  `scan_pattern(cfg, mount)`（`flash_projection`、スキーマ既定は pinhole、south_pole_lowsun*.yaml は azel）で同じ式。
+  SPAD の視野立体角も投影ごと（`flashSolidAngle` / 画素ごとの omega）。
 - 画角: `World.setFov(kind, name, params)`（パターン / 内部行列を作り直す、値はクランプ）。UI の変更は `sensorOverrides` で
   再生成後も保持。LiDAR の検証は `web/tests/ref_raycast.mjs`（独立参照実装）と `web/tools/dump_rays.mjs`（Python 比較）。
 - `World.advance(dt, {scans})`: `'all'` = 予定時刻のスキャンを全部（決定的、閉ループ用）、`'latest'` = 実時間用

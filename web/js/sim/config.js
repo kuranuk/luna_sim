@@ -70,8 +70,8 @@ function check(sc, errors) {
     if (l.kind === 'flash') {
       num(l.hfovDeg, `${p}.hfovDeg`, 1, 170); num(l.vfovDeg, `${p}.vfovDeg`, 1, 170);
       num(l.width, `${p}.width`, 1, 2048, { int: true }); num(l.height, `${p}.height`, 1, 2048, { int: true });
-      if (!['equiangular', 'pinhole', 'equidistant'].includes(l.projection || 'equiangular')) {
-        errors.push(`${p}.projection = ${JSON.stringify(l.projection)}: equiangular / pinhole / equidistant`);
+      if (!['azel', 'equiangular', 'pinhole', 'equidistant'].includes(l.projection || 'azel')) {
+        errors.push(`${p}.projection = ${JSON.stringify(l.projection)}: azel / equiangular / pinhole / equidistant`);
       }
     } else {
       num(l.channels, `${p}.channels`, 1, 512, { int: true }); num(l.hResDeg, `${p}.hResDeg`, 0.01, 90);

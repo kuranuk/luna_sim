@@ -20,7 +20,7 @@ const ROVER = {
 
 const LIDARS = [
   { // SPAD flash LiDAR (primary). Generic sample parameters, see LidarSpadConfig.
-    name: 'spad_flash', kind: 'flash', model: 'spad', rateHz: 2, projection: 'equiangular', // or 'pinhole' / 'equidistant'
+    name: 'spad_flash', kind: 'flash', model: 'spad', rateHz: 2, projection: 'azel', // or 'equiangular' / 'pinhole' / 'equidistant' (lidar.js)
     width: 160, height: 120, hfovDeg: 60, vfovDeg: 45,
     // Mast-mounted: 3.7 m above flat ground (body origin is originHeight = 0.5 m up), 22° down
     // (user setting 2026-10). Mount z is in the body frame (FLU); pitch > 0 = looking down.

@@ -81,6 +81,7 @@ test('SPAD flash geometry on a flat plane: pixel directions and ranges are analy
   const sc = structuredClone(SCENARIOS.mare_plain);
   sc.terrain.n = 512; sc.terrain.res = 0.5; sc.cameras = []; // ±128 m: every hit within 100 m is on the grid
   sc.terrain.fractal.enabled = sc.terrain.craters.enabled = sc.terrain.rocks.enabled = false;
+  sc.lidars[0].projection = 'equiangular'; // sensor-frame pixel angles are checked below
   const w = new World(sc), l = w.lidars.find((x) => x.cfg.name === 'spad_flash'), c = l.cfg;
   const pose = w.sensorPose(c.mount), h = pose.t[2] - heightAt(w.terrain, pose.t[0], pose.t[1]);
   const pitch = c.mount.pitchDeg * Math.PI / 180;
@@ -123,7 +124,7 @@ test('SPAD points lie on their beams at the true range (± timing noise), labels
 
 test('field of view can be changed: patterns, clamping, ray casting and camera intrinsics', () => {
   const w = roughWorld(), hm = w.terrain, l = w.lidars.find((x) => x.cfg.name === 'spad_flash');
-  const cfg = w.setFov('lidar', 'spad_flash', { hfovDeg: 120, vfovDeg: 90 });
+  const cfg = w.setFov('lidar', 'spad_flash', { hfovDeg: 120, vfovDeg: 90, projection: 'equiangular' });
   assert.equal(cfg.hfovDeg, 120); assert.equal(l.pattern.n, 160 * 120);
   const d0 = l.pattern.dirs; // first pixel centre: (1 - 1/W) of the half angle (equiangular)
   assert.ok(Math.abs(Math.atan2(d0[1], d0[0]) - 60 * Math.PI / 180 * (1 - 1 / 160)) < 1e-12);
@@ -176,4 +177,36 @@ test('flash projections: equiangular rows are arcs of constant range, pinhole ro
   assert.ok(d[3 * mid] > 0.999);
   for (let b = 0; b < l.pattern.n; b++) assert.ok(Math.abs(Math.hypot(d[3 * b], d[3 * b + 1], d[3 * b + 2]) - 1) < 1e-12);
   assert.throws(() => w.setSensor('lidar', 'spad_flash', { projection: 'fisheye' }));
+});
+
+test("flash 'azel' (default): on flat ground every row is an arc around the sensor, side edges are radial", () => {
+  const sc = structuredClone(SCENARIOS.mare_plain);
+  sc.terrain.n = 512; sc.terrain.res = 0.5; sc.cameras = [];
+  sc.terrain.fractal.enabled = sc.terrain.craters.enabled = sc.terrain.rocks.enabled = false;
+  const w = new World(sc), l = w.lidars.find((x) => x.cfg.name === 'spad_flash'), W = l.cfg.width, H = l.cfg.height;
+  assert.equal(l.cfg.projection, 'azel'); assert.equal(l.cfg.mount.pitchDeg, 22);
+  const hit = (r, c) => {
+    const p = w.sensorPose(l.cfg.mount), b = r * W + c, d = matVec(p.R, l.pattern.dirs.slice(3 * b, 3 * b + 3));
+    const t = w.caster.trace(p.t[0], p.t[1], p.t[2], d[0], d[1], d[2], 0, 500);
+    return { t, horiz: Math.hypot(d[0] * t, d[1] * t), az: Math.atan2(d[1], d[0]), el: Math.asin(d[2]) };
+  };
+  let rowsHit = 0;
+  for (let r = H - 1; r >= 0; r -= 7) {
+    const row = Array.from({ length: W }, (_, c) => hit(r, c)).filter((q) => q.t < Infinity);
+    if (row.length < W) continue; // rows above the horizon / beyond range
+    rowsHit++;
+    const hs = row.map((q) => q.horiz), els = row.map((q) => q.el);
+    assert.ok(Math.max(...hs) - Math.min(...hs) < 1e-9, `row ${r}: constant ground distance`);
+    assert.ok(Math.max(...els) - Math.min(...els) < 1e-12, `row ${r}: one elevation`);
+  }
+  assert.ok(rowsHit >= 8, `${rowsHit} rows checked`);
+  // lowest row: elevation = -vfov/2 (pixel centre) - pitch; first column azimuth = +hfov/2 (pixel centre)
+  const low = hit(H - 1, 0);
+  assert.ok(Math.abs(low.el + (22.5 * (1 - 1 / H) + 22) * Math.PI / 180) < 1e-12);
+  assert.ok(Math.abs(low.az - 30 * (1 - 1 / W) * Math.PI / 180) < 1e-12);
+  for (const r of [H - 1, H - 30]) assert.ok(Math.abs(hit(r, 0).az - low.az) < 1e-12, 'columns are radial lines');
+  // the pattern follows the mount: a steeper pitch moves the near arc closer
+  const near0 = hit(H - 1, W / 2).horiz;
+  w.setMount('lidar', 'spad_flash', { pitchDeg: 30 });
+  assert.ok(hit(H - 1, W / 2).horiz < near0);
 });

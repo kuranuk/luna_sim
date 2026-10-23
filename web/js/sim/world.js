@@ -73,7 +73,7 @@ export class World {
         if (p.hfovDeg !== undefined) c.hfovDeg = clamp(p.hfovDeg, 1, 170);
         if (p.vfovDeg !== undefined) c.vfovDeg = clamp(p.vfovDeg, 1, 170);
         if (p.projection !== undefined) {
-          if (!['equiangular', 'pinhole', 'equidistant'].includes(p.projection)) throw new Error(`projection ${p.projection}`);
+          if (!['azel', 'equiangular', 'pinhole', 'equidistant'].includes(p.projection)) throw new Error(`projection ${p.projection}`);
           c.projection = p.projection;
         }
       } else {
@@ -105,6 +105,8 @@ export class World {
         : k.endsWith('Deg') ? ((v + 180) % 360 + 360) % 360 - 180 : Math.min(50, Math.max(-50, v));
     }
     this.mountVersion++;
+    const lid = kind === 'lidar' && this.lidars.find((l) => l.cfg === cfg);
+    if (lid) lid.pattern = scanPattern(cfg); // the 'azel' flash pattern depends on the mount
     return cfg;
   }
 

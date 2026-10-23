@@ -3,7 +3,11 @@
 // Patterns (sensor frame FLU): flash (W x H pixels over hfov x vfov) and spinning
 // (channels evenly spaced in elevation, columns every hRes counter-clockwise from -180°).
 // Flash projection (cfg.projection):
-//   'equiangular' (default): pixel (r, c) at azimuth / elevation evenly spaced over hfov / vfov, i.e. each
+//   'azel' (default): azimuth / elevation grid whose azimuth axis stays the body's vertical axis; the
+//      mount pitch is added to the elevation of every row and the mount yaw to the azimuth (roll is not
+//      used). Each row is a cone of constant elevation about the body z axis: on flat ground every row is
+//      an arc of constant range around the sensor and the side edges are radial lines;
+//   'equiangular': pixel (r, c) at azimuth / elevation evenly spaced over hfov / vfov, i.e. each
 //      row is a cone of constant elevation (on flat ground with zero pitch: an arc of constant range);
 //   'pinhole': flat focal-plane array behind an ideal lens, tan(angle) evenly spaced (rows are planes
 //      through the sensor: straight lines on flat ground);
@@ -21,7 +25,7 @@
 // "gaussian" model: p_det = 1 / (1 + (S/S50)^-γ), S = ρ cosθ / r², σ(r) = sqrt(σ0² + (k r)²).
 // All device parameters are generic sample values (no specific sensor).
 
-import { matVec } from './frames.js';
+import { eulerZYX, matTVec, matVec } from './frames.js';
 import { rng } from './rng.js';
 import { LABEL, labelAt, normalAt } from './terrain.js';
 
@@ -32,7 +36,12 @@ export const NOISE_LABEL = 254;
 export function scanPattern(cfg) {
   const dirs = [], ring = [], time = [];
   if (cfg.kind === 'flash') {
-    const proj = cfg.projection || 'equiangular';
+    const proj = cfg.projection || 'azel';
+    let Rm = null; // azel: body directions are mapped back into the sensor frame with R_mount^T
+    if (proj === 'azel') {
+      const m = cfg.mount || {};
+      Rm = eulerZYX((m.rollDeg || 0) * Math.PI / 180, (m.pitchDeg || 0) * Math.PI / 180, (m.yawDeg || 0) * Math.PI / 180);
+    }
     const ha = cfg.hfovDeg * Math.PI / 360, va = cfg.vfovDeg * Math.PI / 360; // half angles [rad]
     const th = Math.tan(ha), tv = Math.tan(va);
     for (let r = 0; r < cfg.height; r++) {
@@ -44,6 +53,9 @@ export function scanPattern(cfg) {
         } else if (proj === 'equidistant') {
           const ax = sx * ha, ay = sy * va, theta = Math.hypot(ax, ay), s = theta > 0 ? Math.sin(theta) / theta : 1;
           dirs.push(Math.cos(theta), ax * s, ay * s);
+        } else if (proj === 'azel') {
+          const m = cfg.mount || {}, az = sx * ha + (m.yawDeg || 0) * Math.PI / 180, el = sy * va - (m.pitchDeg || 0) * Math.PI / 180;
+          dirs.push(...matTVec(Rm, [Math.cos(el) * Math.cos(az), Math.cos(el) * Math.sin(az), Math.sin(el)]));
         } else { // equiangular
           const az = sx * ha, el = sy * va;
           dirs.push(Math.cos(el) * Math.cos(az), Math.cos(el) * Math.sin(az), Math.sin(el));
@@ -67,7 +79,13 @@ export function scanPattern(cfg) {
 /** Solid angle [sr] of the flash field (pinhole: rectangular pyramid; others: azimuth x elevation patch). */
 export function flashSolidAngle(cfg) {
   const ha = cfg.hfovDeg * Math.PI / 360, va = cfg.vfovDeg * Math.PI / 360;
-  return (cfg.projection || 'equiangular') === 'pinhole' ? 4 * Math.asin(Math.sin(ha) * Math.sin(va)) : 4 * ha * Math.sin(va);
+  const proj = cfg.projection || 'azel';
+  if (proj === 'pinhole') return 4 * Math.asin(Math.sin(ha) * Math.sin(va));
+  if (proj === 'azel') { // elevation band shifted by the pitch
+    const p = ((cfg.mount && cfg.mount.pitchDeg) || 0) * Math.PI / 180;
+    return 2 * ha * (Math.sin(Math.min(va - p, Math.PI / 2)) - Math.sin(Math.max(-va - p, -Math.PI / 2)));
+  }
+  return 4 * ha * Math.sin(va);
 }
 
 function poissonThreshold(lam, tail) { // smallest k with P(X >= k) <= tail, X ~ Poisson(lam)

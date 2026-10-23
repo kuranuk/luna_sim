@@ -581,7 +581,10 @@ class LidarPatternConfig(_Model):
       ``pinhole`` = flat focal-plane array behind an ideal lens (tan of the angles evenly spaced;
       a pixel row is a plane through the sensor -> a straight line on flat ground),
       ``equiangular`` = azimuth / elevation evenly spaced (a row is a cone of constant elevation ->
-      an arc of constant range on flat ground at zero pitch), ``equidistant`` = f-theta lens.
+      an arc of constant range on flat ground at zero pitch), ``equidistant`` = f-theta lens,
+      ``azel`` = azimuth / elevation grid about the body z axis with the mount pitch added to the
+      elevation and the yaw to the azimuth (roll unused): every row is an arc of constant range
+      around the sensor on flat ground for any pitch, the side edges are radial lines.
       Which one fits depends on the receiver optics (sample choice; TODO(ref): device data).
     """
 
@@ -601,7 +604,7 @@ class LidarPatternConfig(_Model):
     flash_height: int = Field(120, ge=1)
     flash_hfov_deg: float = Field(60.0, gt=0.0, lt=170.0)
     flash_vfov_deg: float = Field(45.0, gt=0.0, lt=170.0)
-    flash_projection: Literal["pinhole", "equiangular", "equidistant"] = "pinhole"
+    flash_projection: Literal["pinhole", "equiangular", "equidistant", "azel"] = "pinhole"
 
     @model_validator(mode="after")
     def _check(self) -> LidarPatternConfig:

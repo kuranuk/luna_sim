@@ -21,8 +21,8 @@ from dataclasses import dataclass
 import numpy as np
 import numpy.typing as npt
 
-from lunarsim.config.schema import LidarConfig, LidarNoiseConfig, LidarPatternConfig
-from lunarsim.core.frames import Pose, matrix_from_rotvec
+from lunarsim.config.schema import LidarConfig, LidarNoiseConfig, LidarPatternConfig, MountConfig
+from lunarsim.core.frames import Pose, matrix_from_euler_zyx, matrix_from_rotvec
 from lunarsim.core.illumination.sun import SunState
 from lunarsim.core.illumination.visibility import SkyLighting
 from lunarsim.core.raycast.heightfield import RayHits
@@ -68,8 +68,11 @@ def _unit_from_angles(azimuth: FloatArray, elevation: FloatArray) -> FloatArray:
     return np.stack([ce * np.cos(azimuth), ce * np.sin(azimuth), np.sin(elevation)], axis=-1)
 
 
-def scan_pattern(cfg: LidarPatternConfig) -> ScanPattern:
-    """Build the beam directions/timing of one frame (see :class:`LidarPatternConfig`)."""
+def scan_pattern(cfg: LidarPatternConfig, mount: MountConfig | None = None) -> ScanPattern:
+    """Build the beam directions/timing of one frame (see :class:`LidarPatternConfig`).
+
+    ``mount`` is needed by the ``azel`` flash projection (rows = cones about the body z axis).
+    """
     if cfg.kind == "spinning":
         if cfg.vertical_angles_deg is not None:
             elev = np.sort(np.radians(np.asarray(cfg.vertical_angles_deg, dtype=np.float64)))
@@ -105,7 +108,21 @@ def scan_pattern(cfg: LidarPatternConfig) -> ScanPattern:
         da, db = 2 * ha / w, 2 * va / h
         A, B = np.meshgrid(ha - da * (np.arange(w) + 0.5), va - db * (np.arange(h) + 0.5))
         pa, pb = A.ravel(), B.ravel()
-        if cfg.flash_projection == "equiangular":  # rows = cones of constant elevation
+        if cfg.flash_projection == "azel":  # body-frame az / el grid: pitch added to the elevation
+            m = mount if mount is not None else MountConfig()
+            eb = pb - math.radians(m.pitch_deg)
+            ab = pa + math.radians(m.yaw_deg)
+            d_body = np.stack(
+                [np.cos(eb) * np.cos(ab), np.cos(eb) * np.sin(ab), np.sin(eb)], axis=1
+            )
+            R_m = matrix_from_euler_zyx(
+                math.radians(m.roll_deg), math.radians(m.pitch_deg), math.radians(m.yaw_deg)
+            )
+            d = (
+                d_body @ R_m
+            )  # = (R_m^T d_body^T)^T: back into the sensor frame (roll has no effect)
+            omega = da * (np.sin(eb + db / 2) - np.sin(eb - db / 2))
+        elif cfg.flash_projection == "equiangular":  # rows = cones of constant elevation
             d = np.stack([np.cos(pb) * np.cos(pa), np.cos(pb) * np.sin(pa), np.sin(pb)], axis=1)
             omega = da * (np.sin(pb + db / 2) - np.sin(pb - db / 2))
         else:  # equidistant (f-theta): angle from the axis proportional to the image radius
@@ -299,7 +316,7 @@ def render_lidar(
 
     ``sky`` (optional) adds penumbrae / curvature to the sunlit-background test.
     """
-    pat = scan_pattern(cfg.pattern)
+    pat = scan_pattern(cfg.pattern, cfg.mount)
     nz = cfg.noise
     geo = _cast_beams(layers, caster, cfg, pat, T_world_sensor, motion)
     rho = _reflectance(nz, geo.labels)

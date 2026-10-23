@@ -10,7 +10,7 @@ from scipy import stats
 
 from lunarsim.config import parse_config
 from lunarsim.config.schema import LidarConfig, LidarPatternConfig, LidarSpadConfig
-from lunarsim.core.frames import Pose, matrix_from_rotvec
+from lunarsim.core.frames import Pose, matrix_from_euler_zyx, matrix_from_rotvec
 from lunarsim.core.rng import RngFactory
 from lunarsim.core.sensors.lidar import SensorMotion, detection_probability, scan_pattern
 from lunarsim.core.sensors.spad import first_photon_moments
@@ -291,3 +291,23 @@ def test_flash_projections(projection: str) -> None:
     assert (
         el[0].mean() > 0 > el[-1].mean() and az[:, 0].mean() > 0 > az[:, -1].mean()
     )  # top-left first
+
+
+def test_flash_azel_rows_are_cones_about_the_body_vertical() -> None:
+    """azel: one body elevation per row (pixel elevation - pitch), one azimuth per column."""
+    from lunarsim.config.schema import MountConfig
+
+    m = MountConfig(x_m=0.55, z_m=3.2, pitch_deg=22.0, yaw_deg=10.0)
+    cfg = LidarPatternConfig(kind="flash", flash_width=40, flash_height=30, flash_projection="azel")
+    pat = scan_pattern(cfg, m)
+    R_m = matrix_from_euler_zyx(0.0, math.radians(22.0), math.radians(10.0))
+    db = pat.directions @ R_m.T  # sensor -> body
+    el = np.arcsin(db[:, 2]).reshape(30, 40)
+    az = np.arctan2(db[:, 1], db[:, 0]).reshape(30, 40)
+    np.testing.assert_allclose(el, el[:, :1].repeat(40, 1), atol=1e-12)
+    np.testing.assert_allclose(az, az[:1].repeat(30, 0), atol=1e-12)
+    assert el[-1, 0] == pytest.approx(-math.radians(22.5 * (1 - 1 / 30) + 22.0), abs=1e-12)
+    assert az[0, 0] == pytest.approx(math.radians(30.0 * (1 - 1 / 40) + 10.0), abs=1e-12)
+    assert pat.solid_angle is not None
+    band = math.sin(math.radians(22.5 - 22.0)) - math.sin(math.radians(-22.5 - 22.0))
+    assert pat.solid_angle.sum() == pytest.approx(math.radians(60.0) * band, rel=1e-12)

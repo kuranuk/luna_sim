@@ -232,7 +232,7 @@ const FOV_FIELDS = {
   camera: [['hfovDeg', '水平']],
 };
 const MOUNT_FIELDS = [['x', 'x 前', 'm'], ['y', 'y 左', 'm'], ['z', 'z 上', 'm'], ['rollDeg', 'ロール', '°'], ['pitchDeg', 'ピッチ 下+', '°'], ['yawDeg', 'ヨー 左+', '°']];
-const PROJ_LABEL = { equiangular: '等角（行 = 一定の仰角）', pinhole: 'ピンホール（平面受光）', equidistant: 'f-θ（等距離射影）' };
+const PROJ_LABEL = { azel: '方位・仰角（鉛直軸、ピッチを仰角に加算）', equiangular: '等角（センサごと傾く）', pinhole: 'ピンホール（平面受光）', equidistant: 'f-θ（等距離射影）' };
 const KIND_LABEL = { lidar: 'LiDAR', camera: 'カメラ', light: 'ライト' };
 let sensorCfgs = { lidar: [], camera: [], light: [] };
 const sensorOverrides = {}; // "kind:name" -> { mount, hfovDeg, ... }; matched by name on rebuild
@@ -257,7 +257,7 @@ function sensorCard(kind, cfg) {
     ${fov.length ? `<div class="row wrap">画角 ${fov.map(([k, label]) =>
       `<label>${label} <input type="number" step="1" data-fov="${k}" value="${fmt(cfg[k])}">°</label>`).join(' ')}</div>` : ''}
     ${kind === 'lidar' && cfg.kind === 'flash' ? `<label>投影 <select data-proj>${Object.entries(PROJ_LABEL).map(([k, v]) =>
-      `<option value="${k}" ${(cfg.projection || 'equiangular') === k ? 'selected' : ''}>${v}</option>`).join('')}</select></label>` : ''}
+      `<option value="${k}" ${(cfg.projection || 'azel') === k ? 'selected' : ''}>${v}</option>`).join('')}</select></label>` : ''}
     <p class="hint">${mountHint(kind, cfg)}</p>`;
   for (const inp of card.querySelectorAll('input, select')) {
     inp.addEventListener('change', () => {

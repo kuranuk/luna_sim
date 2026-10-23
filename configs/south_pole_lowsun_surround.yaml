@@ -75,7 +75,7 @@ lidars:
   # SPAD flash LiDAR (primary). Generic sample parameters, see LidarSpadConfig.
   - name: spad_flash
     pattern: {kind: flash, flash_width: 160, flash_height: 120, flash_hfov_deg: 60.0, flash_vfov_deg: 45.0,
-              flash_projection: equiangular}   # rows = constant elevation (see LidarPatternConfig)
+              flash_projection: azel}   # rows = arcs around the sensor (see LidarPatternConfig)
     # mast: 3.7 m above flat ground (body origin = origin_height_m 0.5 m), 22 deg down (pitch > 0)
     mount: {x_m: 0.55, z_m: 3.2, pitch_deg: 22.0}
     noise:
