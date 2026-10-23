@@ -55,6 +55,37 @@ export class World {
 
   setSunUtc(utc) { Object.assign(this.scenario.sun, { mode: 'astronomical', utc }); this.setSunFromScenario(); }
 
+  /**
+   * Change a sensor's field of view [deg] without rebuilding the terrain. LiDAR flash: { hfovDeg,
+   * vfovDeg }; spinning: { vMinDeg, vMaxDeg }; camera: { hfovDeg } (square pixels, so the vertical
+   * angle follows the aspect ratio). Values are clamped to valid ranges; returns the new config.
+   * Flash SPAD: each pixel still gets 1/N of the pulse (same signal per pixel), but sees a larger
+   * solid angle, hence more solar background and a higher detection threshold.
+   */
+  setFov(kind, name, p) {
+    const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, +v));
+    if (kind === 'lidar') {
+      const l = this.lidars.find((x) => x.cfg.name === name);
+      if (!l) throw new Error(`no LiDAR ${name}`);
+      const c = l.cfg;
+      if (c.kind === 'flash') {
+        if (p.hfovDeg !== undefined) c.hfovDeg = clamp(p.hfovDeg, 1, 170);
+        if (p.vfovDeg !== undefined) c.vfovDeg = clamp(p.vfovDeg, 1, 170);
+      } else {
+        const lo = clamp(p.vMinDeg ?? c.vMinDeg, -90, 89), hi = clamp(p.vMaxDeg ?? c.vMaxDeg, lo + 0.1, 90);
+        c.vMinDeg = lo; c.vMaxDeg = hi;
+      }
+      l.pattern = scanPattern(c);
+      return c;
+    }
+    const cam = this.cameras.find((x) => x.cfg.name === name);
+    if (!cam) throw new Error(`no camera ${name}`);
+    if (p.hfovDeg !== undefined) cam.cfg.hfovDeg = clamp(p.hfovDeg, 5, 170);
+    delete cam.cfg.fx; delete cam.cfg.fy;
+    cam.K = intrinsics(cam.cfg);
+    return cam.cfg;
+  }
+
   setCommand(v, omega) { this.follower = null; this.rover.setCommand(v, omega); }
 
   setWaypoints(points, speed) { this.follower = new WaypointFollower(points, speed); }

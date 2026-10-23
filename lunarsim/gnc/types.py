@@ -134,7 +134,10 @@ class LidarScan:
     """One LiDAR frame, in the sensor frame (FLU) at the scan time ``t`` [s].
 
     points (N, 4) float32 = x, y, z [m], intensity; labels (N,) uint8 (254 = false alarm / noise);
-    time (N,) float32 = per-point offset from ``t`` [s]; ring (N,) uint16 = channel / row.
+    time (N,) float32 = per-point offset from ``t`` [s]; ring (N,) uint16 = channel / row;
+    beam (N,) uint32 = beam index (flash: ``row * width + col``). ``pattern`` = the scan pattern at
+    that frame (field of view can be changed in the browser), e.g. ``{"kind": "flash", "width",
+    "height", "hfovDeg", "vfovDeg"}`` or ``{"kind": "spinning", "channels", "vMinDeg", ...}``.
     """
 
     name: str
@@ -144,6 +147,8 @@ class LidarScan:
     labels: npt.NDArray[Any]
     time: npt.NDArray[Any]
     ring: npt.NDArray[Any]
+    beam: npt.NDArray[Any] = field(default_factory=lambda: np.zeros(0, dtype=np.uint32))
+    pattern: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass

@@ -208,6 +208,7 @@ worker.onmessage = (ev) => {
         if (clouds[l.name]) clouds[l.name].visible = e.target.checked;
       });
       $('lidars').appendChild(lab);
+      $('lidars').appendChild(fovControls('lidar', l.name, l.cfg));
     }
     window.lunarsimWeb.ready = true;
   } else if (m.type === 'sunlit') applySunlit(m);
@@ -215,6 +216,7 @@ worker.onmessage = (ev) => {
   else if (m.type === 'gnc') gncEvent(m);
   else if (m.type === 'camera') showCamera(m);
   else if (m.type === 'cameras') setupCameras(m);
+  else if (m.type === 'fov') fovApplied(m);
   else if (m.type === 'lidar') updateCloud(m);
   else if (m.type === 'export') {
     const url = URL.createObjectURL(new Blob([m.data], { type: m.mime }));
@@ -223,6 +225,54 @@ worker.onmessage = (ev) => {
     setTimeout(() => URL.revokeObjectURL(url), 5000);
   } else if (m.type === 'error') { $('busy').hidden = true; $('error').textContent = m.message; console.error(m.message); }
 };
+
+// ------------------------------------------------------------------ field of view (画角)
+// Number inputs per sensor; the worker clamps the values and answers with the applied config, which is
+// also written back into `scenario` so that a rebuild keeps it.
+const FOV_FIELDS = {
+  flash: [['hfovDeg', '水平'], ['vfovDeg', '垂直']],
+  spinning: [['vMinDeg', '仰角 下'], ['vMaxDeg', '上']],
+  camera: [['hfovDeg', '水平']],
+};
+function vfovText(cfg) { // camera: vertical angle from the aspect ratio (square pixels)
+  const t = Math.tan(cfg.hfovDeg * DEG / 2) * cfg.height / cfg.width;
+  return `垂直 ${(2 * Math.atan(t) / DEG).toFixed(1)}°`;
+}
+function fovControls(kind, name, cfg) {
+  const row = document.createElement('div');
+  row.className = 'row wrap fov';
+  row.dataset.sensor = `${kind}:${name}`;
+  const fields = FOV_FIELDS[kind === 'camera' ? 'camera' : cfg.kind] || [];
+  row.innerHTML = '画角 ' + fields.map(([k, label]) =>
+    `<label>${label} <input type="number" step="1" data-key="${k}" value="${(+cfg[k]).toFixed(1)}">°</label>`).join(' ') +
+    (kind === 'camera' ? ` <span class="hint">${vfovText(cfg)}</span>` : '');
+  for (const inp of row.querySelectorAll('input')) {
+    inp.addEventListener('change', () => {
+      const params = {};
+      for (const i of row.querySelectorAll('input')) params[i.dataset.key] = +i.value;
+      worker.postMessage({ type: 'fov', kind, name, params });
+    });
+  }
+  return row;
+}
+function fovApplied(m) {
+  const row = document.querySelector(`.fov[data-sensor="${m.kind}:${m.name}"]`);
+  if (row) {
+    for (const i of row.querySelectorAll('input')) i.value = (+m.cfg[i.dataset.key]).toFixed(1);
+    const h = row.querySelector('.hint');
+    if (h) h.textContent = vfovText(m.cfg);
+  }
+  const o = {};
+  for (const k of ['hfovDeg', 'vfovDeg', 'vMinDeg', 'vMaxDeg']) if (m.cfg[k] !== undefined) o[k] = m.cfg[k];
+  fovOverrides[`${m.kind}:${m.name}`] = o;
+}
+const fovOverrides = {}; // kept across rebuilds and presets (sensors are matched by name)
+function applyFovOverrides(sc) {
+  for (const [key, o] of Object.entries(fovOverrides)) {
+    const [kind, name] = key.split(':'), c = (kind === 'lidar' ? sc.lidars : sc.cameras || []).find((x) => x.name === name);
+    if (c) Object.assign(c, o);
+  }
+}
 
 // ------------------------------------------------------------------ camera (GPU-rendered in the worker)
 const camStats = {};
@@ -245,6 +295,7 @@ function setupCameras(m) {
     lab.innerHTML = `<input type="checkbox" checked> ${c.name}（${c.width}×${c.height}, ${c.rateHz} Hz）`;
     lab.querySelector('input').addEventListener('change', (e) => worker.postMessage({ type: 'camera', name: c.name, on: e.target.checked }));
     box.appendChild(lab);
+    box.appendChild(fovControls('camera', c.name, { kind: 'camera', hfovDeg: c.hfovDeg, width: c.width, height: c.height }));
   }
   if (m.lights.length) {
     const lab = document.createElement('label');
@@ -283,6 +334,7 @@ function build() {
   scenario = structuredClone(SCENARIOS[$('preset').value]);
   Object.assign(scenario.terrain, SIZES[$('size').value]);
   scenario.seed = Math.max(0, Math.floor(+$('seed').value || 0));
+  applyFovOverrides(scenario);
   const astro = document.querySelector('input[name=sunmode]:checked').value === 'astro';
   scenario.sun = astro ? { ...scenario.sun, mode: 'astronomical', utc: `${$('sun-utc').value}:00Z` }
     : { ...scenario.sun, mode: 'manual', azDeg: +$('sun-az').value, elDeg: +$('sun-el').value };

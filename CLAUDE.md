@@ -193,6 +193,8 @@ fractal (`terrain/fractal`) → tilt → craters (`terrain/craters/{count,size,p
   Hapke は `sim/brdf.js`（CPU 版 = Python と 1e-12 で一致、GLSL 版は同じ式）。太陽の影 = `World.sunlitFull()`
   （格子点ごとの影レイ、LiDAR と同じキャスタ）をテクスチャで双一次補間、ライトの影 = 距離シャドウマップ。
   World はレンダラを `world.cameraRenderer` で注入（Node では null → カメラフレームなし）。
+- 画角: `World.setFov(kind, name, params)`（パターン / 内部行列を作り直す、値はクランプ）。UI の変更は `fovOverrides` で
+  再生成後も保持。LiDAR の検証は `web/tests/ref_raycast.mjs`（独立参照実装）と `web/tools/dump_rays.mjs`（Python 比較）。
 - `World.advance(dt, {scans})`: `'all'` = 予定時刻のスキャンを全部（決定的、閉ループ用）、`'latest'` = 実時間用
   （遅れた分は最新 1 フレームだけ）。真値姿勢は 10 Hz で `out.poses`。
 - Three.js は Python ビューアと同じ CDN + SRI + `web/vendor/` 同梱（同一バイトを `tests/test_web_sim.py` で検査）。
