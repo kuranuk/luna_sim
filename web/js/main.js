@@ -232,6 +232,7 @@ const FOV_FIELDS = {
   camera: [['hfovDeg', '水平']],
 };
 const MOUNT_FIELDS = [['x', 'x 前', 'm'], ['y', 'y 左', 'm'], ['z', 'z 上', 'm'], ['rollDeg', 'ロール', '°'], ['pitchDeg', 'ピッチ 下+', '°'], ['yawDeg', 'ヨー 左+', '°']];
+const PROJ_LABEL = { equiangular: '等角（行 = 一定の仰角）', pinhole: 'ピンホール（平面受光）', equidistant: 'f-θ（等距離射影）' };
 const KIND_LABEL = { lidar: 'LiDAR', camera: 'カメラ', light: 'ライト' };
 let sensorCfgs = { lidar: [], camera: [], light: [] };
 const sensorOverrides = {}; // "kind:name" -> { mount, hfovDeg, ... }; matched by name on rebuild
@@ -255,12 +256,16 @@ function sensorCard(kind, cfg) {
       `<label>${label}<input type="number" step="${unit === 'm' ? 0.05 : 1}" data-mount="${k}" value="${fmt(cfg.mount[k])}"></label>`).join('')}</div>
     ${fov.length ? `<div class="row wrap">画角 ${fov.map(([k, label]) =>
       `<label>${label} <input type="number" step="1" data-fov="${k}" value="${fmt(cfg[k])}">°</label>`).join(' ')}</div>` : ''}
+    ${kind === 'lidar' && cfg.kind === 'flash' ? `<label>投影 <select data-proj>${Object.entries(PROJ_LABEL).map(([k, v]) =>
+      `<option value="${k}" ${(cfg.projection || 'equiangular') === k ? 'selected' : ''}>${v}</option>`).join('')}</select></label>` : ''}
     <p class="hint">${mountHint(kind, cfg)}</p>`;
-  for (const inp of card.querySelectorAll('input')) {
+  for (const inp of card.querySelectorAll('input, select')) {
     inp.addEventListener('change', () => {
       const params = { mount: {} };
       for (const i of card.querySelectorAll('input[data-mount]')) params.mount[i.dataset.mount] = +i.value;
       for (const i of card.querySelectorAll('input[data-fov]')) params[i.dataset.fov] = +i.value;
+      const proj = card.querySelector('select[data-proj]');
+      if (proj) params.projection = proj.value;
       worker.postMessage({ type: 'sensor', kind, name: cfg.name, params });
     });
   }
@@ -283,7 +288,7 @@ function sensorApplied(m) {
     card.querySelector('.hint').textContent = mountHint(m.kind, m.cfg);
   }
   const o = { mount: { ...m.cfg.mount } };
-  for (const key of ['hfovDeg', 'vfovDeg', 'vMinDeg', 'vMaxDeg']) if (m.cfg[key] !== undefined) o[key] = m.cfg[key];
+  for (const key of ['hfovDeg', 'vfovDeg', 'vMinDeg', 'vMaxDeg', 'projection']) if (m.cfg[key] !== undefined) o[key] = m.cfg[key];
   sensorOverrides[`${m.kind}:${m.name}`] = o;
   updateSensorMarkers();
 }

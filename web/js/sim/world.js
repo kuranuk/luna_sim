@@ -72,6 +72,10 @@ export class World {
       if (c.kind === 'flash') {
         if (p.hfovDeg !== undefined) c.hfovDeg = clamp(p.hfovDeg, 1, 170);
         if (p.vfovDeg !== undefined) c.vfovDeg = clamp(p.vfovDeg, 1, 170);
+        if (p.projection !== undefined) {
+          if (!['equiangular', 'pinhole', 'equidistant'].includes(p.projection)) throw new Error(`projection ${p.projection}`);
+          c.projection = p.projection;
+        }
       } else {
         const lo = clamp(p.vMinDeg ?? c.vMinDeg, -90, 89), hi = clamp(p.vMaxDeg ?? c.vMaxDeg, lo + 0.1, 90);
         c.vMinDeg = lo; c.vMaxDeg = hi;

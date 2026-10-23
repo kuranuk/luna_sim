@@ -577,7 +577,12 @@ class LidarPatternConfig(_Model):
       deflection = a (cos 2π f1 t, sin 2π f1 t) + a (cos 2π f2 t, -sin 2π f2 t),
       a = fov/4, so the circular field of view has full angle ``rosette_fov_deg``.
     * ``flash``: global-shutter grid ``flash_width`` x ``flash_height`` over
-      ``flash_hfov_deg`` x ``flash_vfov_deg`` (pinhole-like, all points at t = 0).
+      ``flash_hfov_deg`` x ``flash_vfov_deg`` (all points at t = 0). ``flash_projection``:
+      ``pinhole`` = flat focal-plane array behind an ideal lens (tan of the angles evenly spaced;
+      a pixel row is a plane through the sensor -> a straight line on flat ground),
+      ``equiangular`` = azimuth / elevation evenly spaced (a row is a cone of constant elevation ->
+      an arc of constant range on flat ground at zero pitch), ``equidistant`` = f-theta lens.
+      Which one fits depends on the receiver optics (sample choice; TODO(ref): device data).
     """
 
     kind: Literal["spinning", "rosette", "flash"] = "flash"
@@ -596,6 +601,7 @@ class LidarPatternConfig(_Model):
     flash_height: int = Field(120, ge=1)
     flash_hfov_deg: float = Field(60.0, gt=0.0, lt=170.0)
     flash_vfov_deg: float = Field(45.0, gt=0.0, lt=170.0)
+    flash_projection: Literal["pinhole", "equiangular", "equidistant"] = "pinhole"
 
     @model_validator(mode="after")
     def _check(self) -> LidarPatternConfig:

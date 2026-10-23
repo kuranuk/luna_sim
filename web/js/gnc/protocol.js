@@ -58,7 +58,7 @@ export function observationMessage(world, out, seq, dt, waypoints) {
   for (const f of out.lidar) {
     const p = `lidar/${f.name}/${f.frame}/`, c = f.scan.count;
     const lc = (world.lidars.find((l) => l.cfg.name === f.name) || {}).cfg || {};
-    const pattern = lc.kind === 'flash' ? { kind: 'flash', width: lc.width, height: lc.height, hfovDeg: lc.hfovDeg, vfovDeg: lc.vfovDeg }
+    const pattern = lc.kind === 'flash' ? { kind: 'flash', projection: lc.projection || 'equiangular', width: lc.width, height: lc.height, hfovDeg: lc.hfovDeg, vfovDeg: lc.vfovDeg }
       : { kind: lc.kind, channels: lc.channels, vMinDeg: lc.vMinDeg, vMaxDeg: lc.vMaxDeg, hResDeg: lc.hResDeg };
     lidar.push({ name: f.name, frame: f.frame, t: f.time, count: c, beams: f.scan.beams, pattern, mount: lc.mount });
     blobs.push({ name: p + 'points', data: f.scan.points, shape: [c, 4] }, { name: p + 'labels', data: f.scan.labels, shape: [c] },

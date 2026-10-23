@@ -1,7 +1,13 @@
 // LiDAR simulation (simplified port of lunarsim/core/sensors/{lidar,spad}.py).
 //
-// Patterns (sensor frame FLU): flash (W x H pinhole grid over hfov x vfov) and spinning
+// Patterns (sensor frame FLU): flash (W x H pixels over hfov x vfov) and spinning
 // (channels evenly spaced in elevation, columns every hRes counter-clockwise from -180°).
+// Flash projection (cfg.projection):
+//   'equiangular' (default): pixel (r, c) at azimuth / elevation evenly spaced over hfov / vfov, i.e. each
+//      row is a cone of constant elevation (on flat ground with zero pitch: an arc of constant range);
+//   'pinhole': flat focal-plane array behind an ideal lens, tan(angle) evenly spaced (rows are planes
+//      through the sensor: straight lines on flat ground);
+//   'equidistant': f-theta lens, angle from the optical axis proportional to the image radius.
 // Points are returned in the sensor frame at the scan pose (no motion distortion).
 //
 // "spad" model (photon counting, per pixel, `pulses` laser cycles accumulated per frame):
@@ -26,12 +32,23 @@ export const NOISE_LABEL = 254;
 export function scanPattern(cfg) {
   const dirs = [], ring = [], time = [];
   if (cfg.kind === 'flash') {
-    const th = Math.tan(cfg.hfovDeg * Math.PI / 360), tv = Math.tan(cfg.vfovDeg * Math.PI / 360);
+    const proj = cfg.projection || 'equiangular';
+    const ha = cfg.hfovDeg * Math.PI / 360, va = cfg.vfovDeg * Math.PI / 360; // half angles [rad]
+    const th = Math.tan(ha), tv = Math.tan(va);
     for (let r = 0; r < cfg.height; r++) {
       for (let c = 0; c < cfg.width; c++) {
-        const y = -((c + 0.5) / cfg.width * 2 - 1) * th, z = -((r + 0.5) / cfg.height * 2 - 1) * tv;
-        const nn = Math.hypot(1, y, z);
-        dirs.push(1 / nn, y / nn, z / nn); ring.push(r); time.push(0);
+        const sx = 1 - (c + 0.5) / cfg.width * 2, sy = 1 - (r + 0.5) / cfg.height * 2; // +1 = left / top edge
+        if (proj === 'pinhole') {
+          const y = sx * th, z = sy * tv, nn = Math.hypot(1, y, z);
+          dirs.push(1 / nn, y / nn, z / nn);
+        } else if (proj === 'equidistant') {
+          const ax = sx * ha, ay = sy * va, theta = Math.hypot(ax, ay), s = theta > 0 ? Math.sin(theta) / theta : 1;
+          dirs.push(Math.cos(theta), ax * s, ay * s);
+        } else { // equiangular
+          const az = sx * ha, el = sy * va;
+          dirs.push(Math.cos(el) * Math.cos(az), Math.cos(el) * Math.sin(az), Math.sin(el));
+        }
+        ring.push(r); time.push(0);
       }
     }
   } else {
@@ -45,6 +62,12 @@ export function scanPattern(cfg) {
     }
   }
   return { dirs: Float64Array.from(dirs), ring: Uint16Array.from(ring), time: Float32Array.from(time), n: ring.length };
+}
+
+/** Solid angle [sr] of the flash field (pinhole: rectangular pyramid; others: azimuth x elevation patch). */
+export function flashSolidAngle(cfg) {
+  const ha = cfg.hfovDeg * Math.PI / 360, va = cfg.vfovDeg * Math.PI / 360;
+  return (cfg.projection || 'equiangular') === 'pinhole' ? 4 * Math.asin(Math.sin(ha) * Math.sin(va)) : 4 * ha * Math.sin(va);
 }
 
 function poissonThreshold(lam, tail) { // smallest k with P(X >= k) <= tail, X ~ Poisson(lam)
@@ -68,7 +91,7 @@ export function renderLidar(cfg, pattern, pose, hm, caster, sun, frameIndex, see
   const spad = cfg.model === 'spad' ? cfg.spad : null;
   let K = 0, bgK = 0, nBins = 0, peakFrac = 0, sigmaT = 0;
   if (spad) {
-    const omegaFov = 4 * Math.asin(Math.sin(cfg.hfovDeg * Math.PI / 360) * Math.sin(cfg.vfovDeg * Math.PI / 360));
+    const omegaFov = flashSolidAngle(cfg);
     const omegaPix = omegaFov / nb, aRx = Math.PI * (spad.rxAperture / 2) ** 2, phJ = spad.wavelength / (H * C);
     K = spad.pulseEnergy * spad.txTransmission * (omegaPix / omegaFov) * aRx * spad.rxTransmission / Math.PI * phJ * spad.pde;
     bgK = spad.solarSpectral * spad.filterNm / Math.PI * aRx * omegaPix * spad.rxTransmission * phJ * spad.pde;

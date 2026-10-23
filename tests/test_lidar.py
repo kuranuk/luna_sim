@@ -256,3 +256,38 @@ def test_pointcloud_io(tmp_path: Path) -> None:
         for k, v in fields.items():
             np.testing.assert_array_equal(arr[k], v)
     assert RngFactory(0) is not None and LidarSpadConfig().detection_mode == "multi_event"
+
+
+@pytest.mark.parametrize("projection", ["pinhole", "equiangular", "equidistant"])
+def test_flash_projections(projection: str) -> None:
+    """Pixel directions and solid angles of the flash projections (cf. web/js/sim/lidar.js)."""
+    cfg = LidarPatternConfig(
+        kind="flash", flash_width=40, flash_height=30, flash_projection=projection
+    )
+    pat = scan_pattern(cfg)
+    d = pat.directions
+    np.testing.assert_allclose(np.linalg.norm(d, axis=1), 1.0, atol=1e-12)
+    assert pat.solid_angle is not None
+    ha, va = math.radians(30.0), math.radians(22.5)
+    az = np.arctan2(d[:, 1], d[:, 0]).reshape(30, 40)
+    el = np.arcsin(d[:, 2]).reshape(30, 40)
+    if projection == "equiangular":
+        np.testing.assert_allclose(el, el[:, :1].repeat(40, 1), atol=1e-12)  # one elevation per row
+        np.testing.assert_allclose(az[0, 0], ha * (1 - 1 / 40), atol=1e-12)
+        assert pat.solid_angle.sum() == pytest.approx(4 * ha * math.sin(va), rel=1e-12)
+    elif projection == "pinhole":
+        tz = (d[:, 2] / d[:, 0]).reshape(
+            30, 40
+        )  # rows are planes through the sensor: tan(v) constant
+        np.testing.assert_allclose(tz, tz[:, :1].repeat(40, 1), atol=1e-12)
+        assert pat.solid_angle.sum() == pytest.approx(
+            4 * math.asin(math.sin(ha) * math.sin(va)), rel=2e-3
+        )
+    else:
+        th = np.arccos(d[:, 0])  # angle from the axis grows linearly with the pixel radius
+        r = np.hypot(np.tile((np.arange(40) + 0.5) / 40 * 2 - 1, 30) * ha,
+                     np.repeat((np.arange(30) + 0.5) / 30 * 2 - 1, 40) * va)  # fmt: skip
+        np.testing.assert_allclose(th, r, atol=1e-12)
+    assert (
+        el[0].mean() > 0 > el[-1].mean() and az[:, 0].mean() > 0 > az[:, -1].mean()
+    )  # top-left first

@@ -97,8 +97,24 @@ def scan_pattern(cfg: LidarPatternConfig) -> ScanPattern:
         psi = np.arctan2(dz, dy)
         d = np.stack([np.cos(th), np.sin(th) * np.cos(psi), np.sin(th) * np.sin(psi)], axis=1)
         return ScanPattern(d, np.zeros(n, dtype=np.int64), t, None)
-    # flash: pixel centres on a regular grid in the tangent plane (pinhole-like)
     w, h = cfg.flash_width, cfg.flash_height
+    ring = np.repeat(np.arange(h), w).astype(np.int64)
+    if cfg.flash_projection != "pinhole":
+        # angles evenly spaced: a = azimuth / horizontal angle, b = elevation / vertical angle [rad]
+        ha, va = math.radians(cfg.flash_hfov_deg) / 2, math.radians(cfg.flash_vfov_deg) / 2
+        da, db = 2 * ha / w, 2 * va / h
+        A, B = np.meshgrid(ha - da * (np.arange(w) + 0.5), va - db * (np.arange(h) + 0.5))
+        pa, pb = A.ravel(), B.ravel()
+        if cfg.flash_projection == "equiangular":  # rows = cones of constant elevation
+            d = np.stack([np.cos(pb) * np.cos(pa), np.cos(pb) * np.sin(pa), np.sin(pb)], axis=1)
+            omega = da * (np.sin(pb + db / 2) - np.sin(pb - db / 2))
+        else:  # equidistant (f-theta): angle from the axis proportional to the image radius
+            th = np.hypot(pa, pb)
+            s = np.where(th > 0.0, np.sin(th) / np.where(th > 0.0, th, 1.0), 1.0)
+            d = np.stack([np.cos(th), pa * s, pb * s], axis=1)
+            omega = da * db * s  # dΩ = sin(θ)/θ da db
+        return ScanPattern(d, ring, np.zeros(w * h), (h, w), omega)
+    # pinhole: pixel centres on a regular grid in the tangent plane
     tu = math.tan(math.radians(cfg.flash_hfov_deg) / 2)
     tv = math.tan(math.radians(cfg.flash_vfov_deg) / 2)
     du, dv = 2 * tu / w, 2 * tv / h
@@ -109,7 +125,6 @@ def scan_pattern(cfg: LidarPatternConfig) -> ScanPattern:
     norm = np.linalg.norm(d, axis=1)
     d /= norm[:, None]
     omega = du * dv / norm**3  # solid angle of a tangent-plane pixel
-    ring = np.repeat(np.arange(h), w).astype(np.int64)
     return ScanPattern(d, ring, np.zeros(U.size), (h, w), omega)
 
 

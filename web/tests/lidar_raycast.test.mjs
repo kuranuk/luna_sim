@@ -125,8 +125,8 @@ test('field of view can be changed: patterns, clamping, ray casting and camera i
   const w = roughWorld(), hm = w.terrain, l = w.lidars.find((x) => x.cfg.name === 'spad_flash');
   const cfg = w.setFov('lidar', 'spad_flash', { hfovDeg: 120, vfovDeg: 90 });
   assert.equal(cfg.hfovDeg, 120); assert.equal(l.pattern.n, 160 * 120);
-  const d0 = l.pattern.dirs; // first pixel centre: (1 - 1/W) of the half angle
-  assert.ok(Math.abs(Math.atan2(d0[1], d0[0]) - Math.atan(Math.tan(60 * Math.PI / 180) * (1 - 1 / 160))) < 1e-12);
+  const d0 = l.pattern.dirs; // first pixel centre: (1 - 1/W) of the half angle (equiangular)
+  assert.ok(Math.abs(Math.atan2(d0[1], d0[0]) - 60 * Math.PI / 180 * (1 - 1 / 160)) < 1e-12);
   const pose = w.sensorPose(l.cfg.mount);
   for (let b = 0; b < l.pattern.n; b += 7) {
     const d = matVec(pose.R, l.pattern.dirs.slice(3 * b, 3 * b + 3));
@@ -142,4 +142,38 @@ test('field of view can be changed: patterns, clamping, ray casting and camera i
   wc.setFov('camera', 'navcam', { hfovDeg: 40 });
   assert.ok(Math.abs(wc.cameras[0].K.fx - 0.5 * 640 / Math.tan(20 * Math.PI / 180)) < 1e-9 && wc.cameras[0].K.fx > K0);
   assert.equal(wc.scenario.cameras[0].hfovDeg, 40); // the hello message carries the new value
+});
+
+test('flash projections: equiangular rows are arcs of constant range, pinhole rows are straight lines', () => {
+  const sc = structuredClone(SCENARIOS.mare_plain);
+  sc.terrain.n = 512; sc.terrain.res = 0.5; sc.cameras = [];
+  sc.terrain.fractal.enabled = sc.terrain.craters.enabled = sc.terrain.rocks.enabled = false;
+  const w = new World(sc), l = w.lidars.find((x) => x.cfg.name === 'spad_flash'), W = l.cfg.width;
+  const bottom = () => { // ground hits of the lowest pixel row: horizontal distance and forward offset
+    const p = w.sensorPose(l.cfg.mount), r = l.cfg.height - 1, out = [];
+    for (let c = 0; c < W; c++) {
+      const b = r * W + c, d = matVec(p.R, l.pattern.dirs.slice(3 * b, 3 * b + 3));
+      const t = w.caster.trace(p.t[0], p.t[1], p.t[2], d[0], d[1], d[2], 0, 500);
+      out.push({ range: t, horiz: Math.hypot(d[0] * t, d[1] * t), fwd: d[0] * t });
+    }
+    return out;
+  };
+  const spread = (a) => Math.max(...a) - Math.min(...a);
+  w.setSensor('lidar', 'spad_flash', { mount: { pitchDeg: 0 }, projection: 'equiangular' });
+  let row = bottom();
+  assert.ok(spread(row.map((q) => q.horiz)) < 1e-9, 'constant ground distance'); // an arc around the sensor
+  assert.ok(spread(row.map((q) => q.range)) < 1e-9, 'constant range');
+  assert.ok(spread(row.map((q) => q.fwd)) > 0.3, 'curved, not straight');
+  w.setSensor('lidar', 'spad_flash', { projection: 'pinhole' });
+  row = bottom();
+  assert.ok(spread(row.map((q) => q.fwd)) < 1e-9, 'pinhole: straight line');
+  assert.ok(spread(row.map((q) => q.horiz)) > 0.3);
+  w.setSensor('lidar', 'spad_flash', { mount: { pitchDeg: 22 }, projection: 'equiangular' });
+  row = bottom(); // tilted cone: still curved (ends nearer the sensor's forward line than a straight row)
+  assert.ok(spread(row.map((q) => q.fwd)) > 0.3);
+  w.setSensor('lidar', 'spad_flash', { projection: 'equidistant' });
+  const d = l.pattern.dirs, mid = (l.cfg.height / 2) * W + W / 2; // the optical axis stays at the centre
+  assert.ok(d[3 * mid] > 0.999);
+  for (let b = 0; b < l.pattern.n; b++) assert.ok(Math.abs(Math.hypot(d[3 * b], d[3 * b + 1], d[3 * b + 2]) - 1) < 1e-12);
+  assert.throws(() => w.setSensor('lidar', 'spad_flash', { projection: 'fisheye' }));
 });
