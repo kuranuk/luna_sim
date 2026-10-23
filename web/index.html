@@ -42,6 +42,20 @@
       <label>Seed <input id="seed" type="number" min="0" step="1"></label>
       <button id="build" class="primary">地形を生成</button>
       <p id="build-info" class="hint"></p>
+      <div class="row wrap">
+        設定ファイル
+        <button id="cfg-load" title="JSON（web/configs/ に例）">読み込む…</button>
+        <button id="cfg-save" title="現在の設定（画角の変更を含む）を JSON で保存">書き出す</button>
+        <button id="cfg-clear" title="設定ファイルをやめてプリセットに戻す">解除</button>
+        <input id="cfg-file" type="file" accept=".json,application/json" hidden>
+      </div>
+      <details id="cfg-edit"><summary>設定を JSON で編集</summary>
+        <textarea id="cfg-text" rows="16" spellcheck="false"></textarea>
+        <button id="cfg-apply">適用して再生成</button>
+        <p class="hint">base のプリセットに上書き。cameras / lidars / lights は名前で既存のセンサに上書き、新しい名前は追加
+          （無い項目は既定値）。<code>"enabled": false</code> で無効、配列から外すと削除。URL に <code>?config=configs/example.json</code> でも読み込めます。</p>
+      </details>
+      <p id="cfg-info" class="hint"></p>
     </section>
     <section>
       <h2>太陽</h2>
@@ -107,7 +121,7 @@
     <pre id="hud"></pre>
     <p class="hint">影は CPU のレイキャストで計算（太陽円盤は点光源扱い）。表示の陰影と弱い環境光は見やすさのための近似です。</p>
   </aside>
-  <div id="cam-panel" hidden><canvas id="cam-view" width="640" height="480"></canvas><div id="cam-info"></div></div>
+  <div id="cam-panel" hidden><div id="cam-grid"></div></div>
   <div id="busy" hidden>計算中…</div>
   <div id="error"></div>
   <script type="module" src="boot.js"></script>

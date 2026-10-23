@@ -3,6 +3,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
+import { resolveConfig, scenarioToConfig } from './sim/config.js';
 import { SCENARIOS, SIZES } from './sim/scenarios.js';
 
 const $ = (id) => document.getElementById(id);
@@ -191,7 +192,7 @@ worker.onmessage = (ev) => {
     rover = makeRover(scenario.rover);
     for (const k of Object.keys(clouds)) { scene.remove(clouds[k]); delete clouds[k]; delete lidarStats[k]; }
     for (const k of Object.keys(camStats)) delete camStats[k];
-    $('cam-panel').hidden = true; $('cameras').innerHTML = '';
+    $('cam-panel').hidden = true; $('cameras').innerHTML = ''; $('cam-grid').innerHTML = '';
     if (trailLine) { scene.remove(trailLine); trailLine = null; }
     updateEstimate(null);
     lastRoverPos = null;
@@ -276,24 +277,46 @@ function applyFovOverrides(sc) {
 
 // ------------------------------------------------------------------ camera (GPU-rendered in the worker)
 const camStats = {};
+function camTile(name) { // one tile per camera in the image panel (created on demand, in config order)
+  let fig = document.querySelector(`#cam-grid figure[data-cam="${name}"]`);
+  if (!fig) {
+    fig = document.createElement('figure');
+    fig.dataset.cam = name;
+    fig.innerHTML = '<canvas width="640" height="480"></canvas><figcaption></figcaption>';
+    $('cam-grid').appendChild(fig);
+  }
+  return fig;
+}
+function updateCamPanel() {
+  const tiles = [...document.querySelectorAll('#cam-grid figure')].filter((f) => !f.hidden && camStats[f.dataset.cam]);
+  $('cam-panel').hidden = !$('cam-show').checked || !tiles.length;
+  $('cam-grid').classList.toggle('multi', tiles.length > 1);
+}
 function showCamera(m) {
-  const cv = $('cam-view');
+  const fig = camTile(m.name), cv = fig.querySelector('canvas');
   if (cv.width !== m.width || cv.height !== m.height) { cv.width = m.width; cv.height = m.height; }
   const img = new ImageData(m.width, m.height);
   for (let k = 0, p = 0; k < m.pixels.length; k++, p += 4) { const g = m.pixels[k]; img.data[p] = img.data[p + 1] = img.data[p + 2] = g; img.data[p + 3] = 255; }
   cv.getContext('2d').putImageData(img, 0, 0);
-  $('cam-panel').hidden = !$('cam-show').checked;
   camStats[m.name] = m;
-  $('cam-info').textContent = `${m.name} #${m.frame}  t=${m.time.toFixed(1)} s  露光 ${(m.exposure * 1e3).toFixed(2)} ms  飽和 ${m.saturated}  GPU ${m.gpuMs.toFixed(0)} ms + センサ ${m.sensorMs.toFixed(0)} ms`;
+  fig.querySelector('figcaption').textContent = `${m.name} #${m.frame}  t=${m.time.toFixed(1)} s  露光 ${(m.exposure * 1e3).toFixed(2)} ms  飽和 ${m.saturated}  GPU ${m.gpuMs.toFixed(0)} + ${m.sensorMs.toFixed(0)} ms`;
+  updateCamPanel();
 }
 function setupCameras(m) {
   const box = $('cameras');
   box.innerHTML = '';
   if (!m.available) { box.innerHTML = `<p class="hint">カメラは無効: ${m.error || 'GPU なし'}</p>`; return; }
+  const grid = $('cam-grid'), names = new Set(m.cameras.map((c) => c.name));
+  for (const f of [...grid.children]) if (!names.has(f.dataset.cam)) f.remove(); // keep tiles already drawn
   for (const c of m.cameras) {
-    const lab = document.createElement('label');
-    lab.innerHTML = `<input type="checkbox" checked> ${c.name}（${c.width}×${c.height}, ${c.rateHz} Hz）`;
-    lab.querySelector('input').addEventListener('change', (e) => worker.postMessage({ type: 'camera', name: c.name, on: e.target.checked }));
+    const lab = document.createElement('label'), fig = camTile(c.name);
+    grid.appendChild(fig); // config order
+    fig.hidden = !c.enabled;
+    lab.innerHTML = `<input type="checkbox" ${c.enabled ? 'checked' : ''}> ${c.name}（${c.width}×${c.height}, ${c.rateHz} Hz）`;
+    lab.querySelector('input').addEventListener('change', (e) => {
+      worker.postMessage({ type: 'camera', name: c.name, on: e.target.checked });
+      fig.hidden = !e.target.checked; updateCamPanel();
+    });
     box.appendChild(lab);
     box.appendChild(fovControls('camera', c.name, { kind: 'camera', hfovDeg: c.hfovDeg, width: c.width, height: c.height }));
   }
@@ -303,16 +326,67 @@ function setupCameras(m) {
     lab.querySelector('input').addEventListener('change', (e) => worker.postMessage({ type: 'lights', on: e.target.checked }));
     box.appendChild(lab);
   }
+  updateCamPanel();
 }
-$('cam-show').addEventListener('change', () => { $('cam-panel').hidden = !$('cam-show').checked || !Object.keys(camStats).length; });
+$('cam-show').addEventListener('change', updateCamPanel);
 
 // ------------------------------------------------------------------ controls
 for (const k of Object.keys(SCENARIOS)) $('preset').add(new Option(k, k));
 for (const k of Object.keys(SIZES)) $('size').add(new Option(k, k));
 $('size').value = '205 m / 0.2 m';
 
+// ------------------------------------------------------------------ config files (JSON, see sim/config.js)
+let customConfig = null; // { obj, base, label } while a config file is active
+function setSizeUi(t) {
+  const old = $('size').querySelector('option[value="__config"]');
+  if (old) old.remove();
+  const key = Object.keys(SIZES).find((k) => SIZES[k].n === t.n && SIZES[k].res === t.res);
+  if (key) { $('size').value = key; return; }
+  const o = new Option(`設定: ${(t.n - 1) * t.res} m / ${t.res} m`, '__config');
+  $('size').add(o); $('size').value = '__config';
+}
+function loadConfig(obj, label) {
+  let sc;
+  try { sc = resolveConfig(obj); } catch (e) { $('cfg-info').textContent = ''; $('error').textContent = e.message; return false; }
+  customConfig = { obj, base: obj.base || 'south_pole_lowsun', label };
+  for (const k of Object.keys(fovOverrides)) delete fovOverrides[k]; // the file is the new reference
+  $('seed').value = sc.seed;
+  $('site').textContent = `${sc.site.lat}°, ${sc.site.lon}°`;
+  setSunUi(sc.sun);
+  setSizeUi(sc.terrain);
+  $('cfg-info').textContent = `設定ファイル: ${label}（base ${customConfig.base}、カメラ ${sc.cameras.length}、LiDAR ${sc.lidars.length}、ライト ${sc.lights.length}）`;
+  build();
+  return true;
+}
+function currentConfigText() { // the effective scenario (incl. field-of-view changes) as a complete config
+  const sc = structuredClone(scenario);
+  applyFovOverrides(sc);
+  return scenarioToConfig(sc, customConfig ? customConfig.base : $('preset').value);
+}
+$('cfg-load').addEventListener('click', () => $('cfg-file').click());
+$('cfg-file').addEventListener('change', async (e) => {
+  const f = e.target.files[0];
+  if (!f) return;
+  try { loadConfig(JSON.parse(await f.text()), f.name); } catch (err) { $('error').textContent = `設定ファイルを読めません: ${err.message}`; }
+  e.target.value = '';
+});
+$('cfg-save').addEventListener('click', () => {
+  if (!scenario) return;
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([currentConfigText()], { type: 'application/json' }));
+  a.download = 'lunarsim_web_config.json'; a.click();
+});
+$('cfg-edit').addEventListener('toggle', () => { if ($('cfg-edit').open && scenario) $('cfg-text').value = currentConfigText(); });
+$('cfg-apply').addEventListener('click', () => {
+  try { loadConfig(JSON.parse($('cfg-text').value), 'エディタ'); } catch (err) { $('error').textContent = `JSON の書式エラー: ${err.message}`; }
+});
+$('cfg-clear').addEventListener('click', () => { customConfig = null; $('cfg-info').textContent = ''; presetChanged(); build(); });
+
 function presetChanged() {
+  customConfig = null; $('cfg-info').textContent = '';
   const sc = SCENARIOS[$('preset').value];
+  if ($('size').value === '__config') setSizeUi(sc.terrain); // leaving a config file: back to a preset size
+  else { const o = $('size').querySelector('option[value="__config"]'); if (o) o.remove(); }
   $('seed').value = sc.seed;
   $('site').textContent = `${sc.site.lat}°, ${sc.site.lon}°`;
   setSunUi(sc.sun);
@@ -331,8 +405,8 @@ function sunModeChanged() {
 $('preset').addEventListener('change', presetChanged);
 
 function build() {
-  scenario = structuredClone(SCENARIOS[$('preset').value]);
-  Object.assign(scenario.terrain, SIZES[$('size').value]);
+  scenario = customConfig ? resolveConfig(customConfig.obj) : structuredClone(SCENARIOS[$('preset').value]);
+  if (SIZES[$('size').value]) Object.assign(scenario.terrain, SIZES[$('size').value]);
   scenario.seed = Math.max(0, Math.floor(+$('seed').value || 0));
   applyFovOverrides(scenario);
   const astro = document.querySelector('input[name=sunmode]:checked').value === 'astro';
@@ -442,11 +516,15 @@ $('gnc-connect').addEventListener('click', () => gncConnect(!gncConnected));
 for (const b of document.querySelectorAll('[data-export]')) {
   b.addEventListener('click', () => {
     const what = b.dataset.export;
-    if (what === 'png') { // the 8-bit display image (gamma 2.2)
-      $('cam-view').toBlob((blob) => { const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'camera_preview.png'; a.click(); });
+    if (what === 'png') { // the 8-bit display images (gamma 2.2), one file per camera shown
+      for (const fig of document.querySelectorAll('#cam-grid figure')) {
+        if (fig.hidden || !camStats[fig.dataset.cam]) continue;
+        fig.querySelector('canvas').toBlob((blob) => { const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `${fig.dataset.cam}_preview.png`; a.click(); });
+      }
       return;
     }
-    const name = what === 'ply' ? (Object.keys(lidarStats)[0] || 'spad_flash') : what === 'pgm' ? (Object.keys(camStats)[0] || 'navcam') : undefined;
+    if (what === 'pgm') { for (const name of Object.keys(camStats)) worker.postMessage({ type: 'export', what, name }); return; }
+    const name = what === 'ply' ? (Object.keys(lidarStats)[0] || 'spad_flash') : undefined;
     worker.postMessage({ type: 'export', what, name });
   });
 }
@@ -463,5 +541,10 @@ window.lunarsimWeb = { ready: false, get state() { return state; }, get lidar() 
   worker, build, setRunning, gncConnect };
 presetChanged();
 build();
+const cfgUrl = new URLSearchParams(location.search).get('config'); // e.g. ?config=configs/example.json
+if (cfgUrl) {
+  fetch(cfgUrl).then((r) => { if (!r.ok) throw new Error(`${r.status} ${r.statusText}`); return r.json(); })
+    .then((obj) => loadConfig(obj, cfgUrl)).catch((e) => { $('error').textContent = `設定ファイル ${cfgUrl} を読めません: ${e.message}`; });
+}
 const autoGnc = new URLSearchParams(location.search).get('gnc'); // e.g. ?gnc=ws://127.0.0.1:8765/
 if (autoGnc) { $('gnc-url').value = autoGnc; gncConnect(true, autoGnc); }

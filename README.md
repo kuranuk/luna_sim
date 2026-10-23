@@ -52,7 +52,7 @@ python scripts/bench.py         # 性能計測 → out/bench/bench.{json,md}
 ## ブラウザビューア
 
 標準シナリオ `configs/south_pole_lowsun.yaml` は単眼 navcam + ヘッドライト 2 灯 + LiDAR
-（ステレオは描画が重いので `south_pole_lowsun_stereo.yaml`）。カメラの無いワールドではビューアのカメラ欄を表示しない。
+（ステレオは描画が重いので `south_pole_lowsun_stereo.yaml`、前後左右の 4 台は `south_pole_lowsun_surround.yaml`）。カメラの無いワールドではビューアのカメラ欄を表示しない。
 
 ```bash
 LUNARSIM_TOKEN=xxxx lunarsim serve --world configs/south_pole_lowsun.yaml          # 単眼カメラ + ライト + LiDAR
@@ -71,7 +71,7 @@ W/A/S/D で走行、スライダで太陽方位・高度、チェックでライ
 
 Python を入れずにブラウザだけで動く簡易版です（静的サイト、ビルド不要）。地形生成（フラクタル + クレーター +
 岩）、太陽（手動 / 日時）、ローバー（WASD・経由点追従）、SPAD フラッシュ LiDAR と回転式 LiDAR、IMU、
-単眼カメラ + ヘッドライト 2 灯、影付き 3D 表示、書き出し（点群 PLY・軌跡 TUM・IMU CSV・高さ .npy・
+カメラ 4 台（前方 navcam・左右サイド・後方）+ ヘッドライト 2 灯、影付き 3D 表示、書き出し（点群 PLY・軌跡 TUM・IMU CSV・高さ .npy・
 画像 PGM 16 bit / PNG）を含みます。
 シミュレーションは Web Worker で実時間（×1〜×10）で回します。
 
@@ -82,7 +82,34 @@ CPU の式と 0.6 % 以内で一致します。歪みなしのピンホール、
 画像は GPU 間でビット一致しません（雑音は seed で固定）。WebGL2 が無い環境ではカメラは無効になります。
 ソフトウェア描画（GPU なしの headless Chromium）では 1 枚数秒かかります。
 
-画角は UI で変えられます（地形の再生成は不要、再生成・プリセット変更後も保持）: SPAD フラッシュの水平・垂直、
+### 設定ファイル（JSON）
+
+センサ構成・画角・取り付け位置・地形・太陽などは JSON の設定ファイルで変えられます。プリセット（`base`）に
+差分だけを書きます（例: `web/configs/example.json`, `web/configs/front_camera_only.json`）。
+
+```json
+{
+  "format": "lunarsim-web/1",
+  "base": "south_pole_lowsun",
+  "seed": 7,
+  "cameras": [
+    { "name": "navcam", "hfovDeg": 90 },
+    { "name": "rear", "enabled": false },
+    { "name": "mast", "rateHz": 1, "hfovDeg": 50, "mount": { "x": 0.2, "z": 1.6, "pitchDeg": 25 } }
+  ],
+  "lidars": [{ "name": "spad_flash", "hfovDeg": 80, "vfovDeg": 60 }]
+}
+```
+
+- `cameras` / `lidars` / `lights` は名前で既存のセンサに上書きし、新しい名前は追加します（書かない項目は既定値、
+  LiDAR は `kind`: `flash` / `spinning`）。配列に書かなかったセンサは削除（配列自体を省略すると base のまま）、
+  `"enabled": false` は残したまま無効。単位は m・s、`Deg` で終わる項目は度。
+- 読み込み: 「設定ファイル → 読み込む…」、URL に `?config=configs/example.json`、または「設定を JSON で編集」で
+  その場で書き換えて「適用して再生成」。範囲外の値は項目名つきで一覧表示します。
+- 「書き出す」で現在の設定（UI での画角変更を含む全項目）を保存できるので、それを雛形にできます。
+- 取り付けの `yawDeg` は 0 = 前、+90 = 左、180 = 後ろ（車体 FLU、ZYX オイラー、pitch > 0 = 下向き）。
+
+画角は UI でも変えられます（地形の再生成は不要、再生成・プリセット変更後も保持）: SPAD フラッシュの水平・垂直、
 回転式の仰角範囲、カメラの水平画角（垂直は縦横比から）。画素数は変わらないので、フラッシュを広げると
 1 画素の角度が大きくなります（1 画素あたりの信号は同じ、背景光が増える）。Python には各スキャンの
 `LidarScan.pattern`（その時点の画角）と `beam`（フラッシュは `行 * 幅 + 列`）、カメラは `K` で届きます。
@@ -136,6 +163,8 @@ node web/tools/headless.mjs --seconds 60 --waypoints "5,0;5,5"   # ブラウザ�
 
 - サンプル（`lunarsim/gnc/examples.py`）: `DeadReckoning`（ジャイロで方位、加速度で傾き、車輪速度で距離。
   すべりとジャイロバイアスで推定がずれる）と、その推定で経由点を追う `WaypointGnc`。
+- カメラが複数あるときは `obs.cameras` にその周期に撮った全カメラが入ります（`.name` で区別、取り付けは
+  `info.camera_mounts[name]`）。
 - カメラ画像は GPU のあるブラウザでのみ届きます（`info.cameras_available`）。`headless.mjs` には画像がありません。
 - 真値はアルゴリズムに渡さず、ブラウザの表示（推定 = オレンジの矢印と軌跡、真値 = 黄の軌跡、HUD に誤差）と
   ログ（`out/gnc/run_*/truth_tum.txt`, `estimate_tum.txt`, `commands.csv`, `info.json`）だけに使います。

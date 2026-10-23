@@ -20,8 +20,8 @@ export class World {
     this.terrain = buildTerrain(this.scenario);
     this.caster = new HeightfieldCaster(this.terrain);
     this.buildMs = performance.now() - t0;
-    this.lidars = this.scenario.lidars.map((cfg) => ({ cfg, pattern: scanPattern(cfg), frame: 0, next: 0, enabled: true }));
-    this.cameras = (this.scenario.cameras || []).map((cfg) => ({ cfg, K: intrinsics(cfg), frame: 0, next: 0, enabled: true }));
+    this.lidars = this.scenario.lidars.map((cfg) => ({ cfg, pattern: scanPattern(cfg), frame: 0, next: 0, enabled: cfg.enabled !== false }));
+    this.cameras = (this.scenario.cameras || []).map((cfg) => ({ cfg, K: intrinsics(cfg), frame: 0, next: 0, enabled: cfg.enabled !== false }));
     this.lightsOn = true;
     this.cameraRenderer = null;
     this.sunVersion = 0;

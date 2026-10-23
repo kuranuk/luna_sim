@@ -193,6 +193,11 @@ fractal (`terrain/fractal`) → tilt → craters (`terrain/craters/{count,size,p
   Hapke は `sim/brdf.js`（CPU 版 = Python と 1e-12 で一致、GLSL 版は同じ式）。太陽の影 = `World.sunlitFull()`
   （格子点ごとの影レイ、LiDAR と同じキャスタ）をテクスチャで双一次補間、ライトの影 = 距離シャドウマップ。
   World はレンダラを `world.cameraRenderer` で注入（Node では null → カメラフレームなし）。
+- カメラ構成（2026-10-23 ユーザー判断）: プリセットは navcam（前）+ side_left / side_right + rear（`scenarios.js`）。
+  ライトの影マップは同じ時刻・姿勢のカメラ間で共有（`camera_gl.js` の `lightKey`）。Python 版の同構成は
+  `configs/south_pole_lowsun_surround.yaml`（標準の `south_pole_lowsun.yaml` は単眼のまま）。
+- 設定ファイル: `sim/config.js` の `resolveConfig`（base プリセット + 差分、センサ配列は名前で上書き / 新規はテンプレート、
+  範囲検査はエラーを全部集めて投げる）。UI は読み込み・書き出し・JSON 編集・`?config=`。例は `web/configs/*.json`（テストで全部検証）。
 - 画角: `World.setFov(kind, name, params)`（パターン / 内部行列を作り直す、値はクランプ）。UI の変更は `fovOverrides` で
   再生成後も保持。LiDAR の検証は `web/tests/ref_raycast.mjs`（独立参照実装）と `web/tools/dump_rays.mjs`（Python 比較）。
 - `World.advance(dt, {scans})`: `'all'` = 予定時刻のスキャンを全部（決定的、閉ループ用）、`'latest'` = 実時間用

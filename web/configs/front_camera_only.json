@@ -1,0 +1,6 @@
+{
+  "format": "lunarsim-web/1",
+  "base": "south_pole_lowsun",
+  "description": "Lighter load: front navcam only (no side / rear cameras), both LiDARs.",
+  "cameras": [{ "name": "navcam" }]
+}

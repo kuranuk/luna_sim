@@ -49,7 +49,7 @@ test('expose: auto exposure puts the percentile at the target; shot + read noise
 test('World schedules camera frames with an injected renderer and sends them to Python', () => {
   const sc = structuredClone(SCENARIOS.mare_plain);
   sc.terrain.n = 128; sc.terrain.res = 0.25; sc.lidars = [];
-  sc.cameras[0].width = 32; sc.cameras[0].height = 24;
+  sc.cameras = [sc.cameras[0]]; sc.cameras[0].width = 32; sc.cameras[0].height = 24;
   const w = new World(sc);
   assert.equal(w.advance(1.0).camera.length, 0); // no renderer (Node): skipped
   w.reset();

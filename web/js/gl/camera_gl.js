@@ -123,6 +123,7 @@ export class GpuCameraRenderer {
 
   setWorld(world) {
     this.world = world;
+    this.lightKey = null;
     if (this.mesh) { this.scene.remove(this.mesh); this.distScene.remove(this.distMesh); this.mesh.geometry.dispose(); }
     const t = world.terrain, { n, res, x0, y0, z } = t, N = n * n;
     const pos = new Float32Array(3 * N), grad = new Float32Array(2 * N), uv = new Float32Array(2 * N);
@@ -203,7 +204,11 @@ export class GpuCameraRenderer {
     const sun = world.sun;
     u.uSunDir.value.set(...sun.dir);
     u.uSunE.value = sun.el > 0 ? sun.irradiance * cam.cfg.sensor.bandFraction : 0;
-    this.lights.forEach((l, k) => {
+    // Light shadow maps depend only on the rover pose: cameras taken at the same instant share them.
+    const lightKey = `${world.time}|${world.lightsOn}|${world.rover.x}|${world.rover.y}|${world.rover.yaw}`;
+    const fresh = lightKey !== this.lightKey;
+    this.lightKey = lightKey;
+    if (fresh) this.lights.forEach((l, k) => {
       const on = world.lightsOn && l.cfg.enabled, lp = compose(world.rover.pose, mountPose(l.cfg.mount));
       u.uLightPos.value[k].set(...lp.t);
       u.uLightAxis.value[k].set(lp.R[0], lp.R[3], lp.R[6]); // light +x in world

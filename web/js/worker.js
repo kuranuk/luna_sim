@@ -23,7 +23,7 @@ function attachGpu() {
     for (const c of world.cameras) c.next = 1 / c.cfg.rateHz;
   }
   post({ type: 'cameras', available: !!gpu, error: gpuError,
-    cameras: world.cameras.map((c) => ({ name: c.cfg.name, width: c.K.width, height: c.K.height, rateHz: c.cfg.rateHz, hfovDeg: c.cfg.hfovDeg })),
+    cameras: world.cameras.map((c) => ({ name: c.cfg.name, width: c.K.width, height: c.K.height, rateHz: c.cfg.rateHz, hfovDeg: c.cfg.hfovDeg, enabled: c.enabled })),
     lights: (world.scenario.lights || []).map((l) => l.name) });
 }
 
