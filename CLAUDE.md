@@ -202,7 +202,7 @@ fractal (`terrain/fractal`) → tilt → craters (`terrain/craters/{count,size,p
   （pitch +22、ユーザーの「ピッチ -22°」は下向きの意味と解釈）。Python の south_pole_lowsun*.yaml も同じ。
   `World.setMount` / `setSensor`（pitch は ±90° にクランプ、roll / yaw は ±180° に巻き戻し、`mountVersion` でライト影マップを更新）。
   UI は「センサ配置」タブ（`sensorOverrides` で再生成・書き出しに保持）、3D の車体にマストと向きの矢印を表示。
-- 画角: `World.setFov(kind, name, params)`（パターン / 内部行列を作り直す、値はクランプ）。UI の変更は `fovOverrides` で
+- 画角: `World.setFov(kind, name, params)`（パターン / 内部行列を作り直す、値はクランプ）。UI の変更は `sensorOverrides` で
   再生成後も保持。LiDAR の検証は `web/tests/ref_raycast.mjs`（独立参照実装）と `web/tools/dump_rays.mjs`（Python 比較）。
 - `World.advance(dt, {scans})`: `'all'` = 予定時刻のスキャンを全部（決定的、閉ループ用）、`'latest'` = 実時間用
   （遅れた分は最新 1 フレームだけ）。真値姿勢は 10 Hz で `out.poses`。
