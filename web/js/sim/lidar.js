@@ -27,6 +27,7 @@
 
 import { eulerZYX, matTVec, matVec } from './frames.js';
 import { rng } from './rng.js';
+import { OBJECT_LABEL } from './objects.js';
 import { LABEL, labelAt, normalAt } from './terrain.js';
 
 const C = 299792458, H = 6.62607015e-34;
@@ -121,15 +122,17 @@ export function renderLidar(cfg, pattern, pose, hm, caster, sun, frameIndex, see
   const sunOk = sun && sun.el > 0;
   for (let b = 0; b < nb; b++) {
     const ds = [dirs[3 * b], dirs[3 * b + 1], dirs[3 * b + 2]], dw = matVec(pose.R, ds);
-    const t = caster.trace(o[0], o[1], o[2], dw[0], dw[1], dw[2], 0, cfg.rangeMax * 1.05);
+    const hitInfo = caster.traceHit ? caster.traceHit(o[0], o[1], o[2], dw[0], dw[1], dw[2], 0, cfg.rangeMax * 1.05) : null;
+    const t = hitInfo ? hitInfo.t : caster.trace(o[0], o[1], o[2], dw[0], dw[1], dw[2], 0, cfg.rangeMax * 1.05);
     const u1 = r.random(), u2 = r.random(), g1 = r.normal(); // fixed draws per beam
     let range = NaN, inten = 0, label = 0, hit = t >= cfg.rangeMin && t <= cfg.rangeMax;
     let rho = cfg.reflectance, cosI = 0, nrm = null, px = 0, py = 0, pz = 0;
     if (hit) {
       px = o[0] + dw[0] * t; py = o[1] + dw[1] * t; pz = o[2] + dw[2] * t;
-      nrm = normalAt(hm, px, py);
+      const obj = hitInfo && hitInfo.object;
+      nrm = obj ? hitInfo.n : normalAt(hm, px, py);
       cosI = Math.max(0, -(nrm[0] * dw[0] + nrm[1] * dw[1] + nrm[2] * dw[2]));
-      label = labelAt(hm, px, py) === LABEL.ROCK ? LABEL.ROCK : 0;
+      label = obj ? OBJECT_LABEL : labelAt(hm, px, py) === LABEL.ROCK ? LABEL.ROCK : 0;
     }
     if (spad) {
       let phi = spad.dcr;

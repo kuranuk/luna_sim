@@ -205,6 +205,10 @@ worker.onmessage = (ev) => {
       $('lidars').appendChild(lab);
     }
     setupSensorTab(m.sensors);
+    drawObjects(m.objects);
+    if (m.outsideObjects.length) {
+      $('build-info').textContent += `　※ ${m.outsideObjects.join(', ')} は地形の範囲外（下に地面がありません。範囲 512 m で地面の上に立ちます）`;
+    }
     window.lunarsimWeb.ready = true;
   } else if (m.type === 'sunlit') applySunlit(m);
   else if (m.type === 'state') { updateEstimate(m.gnc); applyState(m.state); updateTrail(m.trail); }
@@ -220,6 +224,21 @@ worker.onmessage = (ev) => {
     setTimeout(() => URL.revokeObjectURL(url), 5000);
   } else if (m.type === 'error') { $('busy').hidden = true; $('error').textContent = m.message; console.error(m.message); }
 };
+
+// ------------------------------------------------------------------ scene objects (analytic cylinders)
+let objectGroup = null;
+function drawObjects(objects) {
+  if (objectGroup) scene.remove(objectGroup);
+  objectGroup = new THREE.Group();
+  const mat = new THREE.MeshLambertMaterial({ color: 0xb0b0b0 });
+  for (const c of objects || []) {
+    const mesh = new THREE.Mesh(new THREE.CylinderGeometry(c.r, c.r, c.zt - c.zb, 48), mat);
+    mesh.rotation.x = Math.PI / 2; // Three's cylinder axis is +y; ours is +z
+    mesh.position.set(c.cx, c.cy, (c.zb + c.zt) / 2);
+    objectGroup.add(mesh);
+  }
+  scene.add(objectGroup);
+}
 
 // ------------------------------------------------------------------ sensor placement tab (取り付け位置・角度・画角)
 // One card per LiDAR / camera / light. Mount = body FLU (x forward, y left, z up; origin = body centre,

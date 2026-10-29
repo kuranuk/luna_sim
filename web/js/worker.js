@@ -262,6 +262,7 @@ self.onmessage = (ev) => {
       log.traj = []; log.imu = world.imuSamples ? world.imuSamples.slice() : []; log.lastScan = {};
       const tp = terrainPayload(world);
       post({ type: 'built', terrain: tp, buildMs: world.buildMs, lidars: world.lidars.map((l) => ({ name: l.cfg.name, beams: l.pattern.n, rateHz: l.cfg.rateHz, cfg: l.cfg })),
+        objects: world.objects, outsideObjects: world.objects.filter((o) => o.outside).map((o) => o.name),
         sensors: { lidar: world.lidars.map((l) => l.cfg), camera: world.cameras.map((c) => c.cfg), light: world.scenario.lights || [] },
         state: world.state() }, [tp.z.buffer, tp.labels.buffer]);
       sendSunlit();

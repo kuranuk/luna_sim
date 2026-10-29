@@ -20,7 +20,7 @@ for (let k = 0; k < 3; k++) {
     const pose = w.sensorPose(l.cfg.mount), o = pose.t;
     for (let b = 0; b < l.pattern.n; b++) {
       const d = matVec(pose.R, [l.pattern.dirs[3 * b], l.pattern.dirs[3 * b + 1], l.pattern.dirs[3 * b + 2]]);
-      rows.push(o[0], o[1], o[2], d[0], d[1], d[2], w.caster.trace(o[0], o[1], o[2], d[0], d[1], d[2], 0, l.cfg.rangeMax * 1.05));
+      rows.push(o[0], o[1], o[2], d[0], d[1], d[2], w.caster.terrain.trace(o[0], o[1], o[2], d[0], d[1], d[2], 0, l.cfg.rangeMax * 1.05));
     }
   }
 }

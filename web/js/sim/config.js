@@ -37,7 +37,7 @@ function mergeList(kind, baseList, entries, errors) {
         const lk = e.kind || 'flash';
         base = TEMPLATES.lidar[lk];
         if (!base) { errors.push(`lidars[${k}]: kind "${lk}" は flash / spinning のどちらかです`); return null; }
-      } else base = kind === 'cameras' ? TEMPLATES.camera : TEMPLATES.light;
+      } else base = kind === 'cameras' ? TEMPLATES.camera : kind === 'objects' ? TEMPLATES.object : TEMPLATES.light;
     }
     return deepMerge(base, e);
   }).filter(Boolean);
@@ -80,6 +80,12 @@ function check(sc, errors) {
     }
     mount(l.mount, p);
   });
+  (sc.objects || []).forEach((o, k) => {
+    const p = `objects[${k}] (${o.name})`;
+    if (o.type !== 'cylinder') errors.push(`${p}.type = ${JSON.stringify(o.type)}: cylinder のみ対応`);
+    num(o.x, `${p}.x`, -1e5, 1e5); num(o.y, `${p}.y`, -1e5, 1e5);
+    num(o.diameter, `${p}.diameter`, 0, 1e4, { openLo: true }); num(o.height, `${p}.height`, 0, 1e4, { openLo: true });
+  });
   sc.lights.forEach((l, k) => {
     const p = `lights[${k}] (${l.name})`;
     num(l.fluxLm, `${p}.fluxLm`, 0, 1e7);
@@ -97,9 +103,9 @@ export function resolveConfig(cfg) {
   const baseName = cfg.base || 'south_pole_lowsun';
   const base = SCENARIOS[baseName];
   if (!base) throw new Error(`base "${baseName}" はありません（${Object.keys(SCENARIOS).join(', ')}）`);
-  const { format, base: _b, cameras, lights, lidars, ...rest } = cfg;
+  const { format, base: _b, cameras, lights, lidars, objects, ...rest } = cfg;
   const sc = deepMerge(base, rest);
-  for (const [key, list] of [['cameras', cameras], ['lights', lights], ['lidars', lidars]]) {
+  for (const [key, list] of [['cameras', cameras], ['lights', lights], ['lidars', lidars], ['objects', objects]]) {
     if (list !== undefined) sc[key] = mergeList(key, base[key] || [], list, errors);
   }
   if (cfg.imu === null) sc.imu = null;

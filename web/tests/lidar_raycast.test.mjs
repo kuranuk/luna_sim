@@ -11,7 +11,7 @@ import { cellHit, refTrace } from './ref_raycast.mjs';
 
 function roughWorld() { // south-pole terrain (craters + rocks) on a smaller grid
   const sc = structuredClone(SCENARIOS.south_pole_lowsun);
-  sc.terrain.n = 256; sc.terrain.res = 0.2; sc.cameras = [];
+  sc.terrain.n = 256; sc.terrain.res = 0.2; sc.cameras = []; sc.objects = [];
   return new World(sc);
 }
 
@@ -79,7 +79,7 @@ test('edge rays: along grid lines, through vertices, vertical, horizontal, from 
 
 test('SPAD flash geometry on a flat plane: pixel directions and ranges are analytic', () => {
   const sc = structuredClone(SCENARIOS.mare_plain);
-  sc.terrain.n = 512; sc.terrain.res = 0.5; sc.cameras = []; // ±128 m: every hit within 100 m is on the grid
+  sc.terrain.n = 512; sc.terrain.res = 0.5; sc.cameras = []; sc.objects = []; // ±128 m: every hit within 100 m is on the grid
   sc.terrain.fractal.enabled = sc.terrain.craters.enabled = sc.terrain.rocks.enabled = false;
   sc.lidars[0].projection = 'equiangular'; // sensor-frame pixel angles are checked below
   const w = new World(sc), l = w.lidars.find((x) => x.cfg.name === 'spad_flash'), c = l.cfg;
@@ -147,7 +147,7 @@ test('field of view can be changed: patterns, clamping, ray casting and camera i
 
 test('flash projections: equiangular rows are arcs of constant range, pinhole rows are straight lines', () => {
   const sc = structuredClone(SCENARIOS.mare_plain);
-  sc.terrain.n = 512; sc.terrain.res = 0.5; sc.cameras = [];
+  sc.terrain.n = 512; sc.terrain.res = 0.5; sc.cameras = []; sc.objects = [];
   sc.terrain.fractal.enabled = sc.terrain.craters.enabled = sc.terrain.rocks.enabled = false;
   const w = new World(sc), l = w.lidars.find((x) => x.cfg.name === 'spad_flash'), W = l.cfg.width;
   const bottom = () => { // ground hits of the lowest pixel row: horizontal distance and forward offset
@@ -181,7 +181,7 @@ test('flash projections: equiangular rows are arcs of constant range, pinhole ro
 
 test("flash 'azel' (default): on flat ground every row is an arc around the sensor, side edges are radial", () => {
   const sc = structuredClone(SCENARIOS.mare_plain);
-  sc.terrain.n = 512; sc.terrain.res = 0.5; sc.cameras = [];
+  sc.terrain.n = 512; sc.terrain.res = 0.5; sc.cameras = []; sc.objects = [];
   sc.terrain.fractal.enabled = sc.terrain.craters.enabled = sc.terrain.rocks.enabled = false;
   const w = new World(sc), l = w.lidars.find((x) => x.cfg.name === 'spad_flash'), W = l.cfg.width, H = l.cfg.height;
   assert.equal(l.cfg.projection, 'azel'); assert.equal(l.cfg.mount.pitchDeg, 22);

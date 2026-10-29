@@ -8,6 +8,7 @@ import { expose, intrinsics } from './camera.js';
 import { compose, DEG, mountPose, quat } from './frames.js';
 import { Imu } from './imu.js';
 import { renderLidar, scanPattern } from './lidar.js';
+import { buildObjects, SceneCaster } from './objects.js';
 import { HeightfieldCaster } from './raycast.js';
 import { Rover, WaypointFollower } from './rover.js';
 import { sunAstronomical, sunManual } from './sun.js';
@@ -18,7 +19,8 @@ export class World {
     this.scenario = structuredClone(scenario);
     const t0 = performance.now();
     this.terrain = buildTerrain(this.scenario);
-    this.caster = new HeightfieldCaster(this.terrain);
+    this.objects = buildObjects(this.scenario, this.terrain);
+    this.caster = new SceneCaster(new HeightfieldCaster(this.terrain), this.objects); // terrain + objects
     this.buildMs = performance.now() - t0;
     this.lidars = this.scenario.lidars.map((cfg) => ({ cfg, pattern: scanPattern(cfg), frame: 0, next: 0, enabled: cfg.enabled !== false }));
     this.cameras = (this.scenario.cameras || []).map((cfg) => ({ cfg, K: intrinsics(cfg), frame: 0, next: 0, enabled: cfg.enabled !== false }));

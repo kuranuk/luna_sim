@@ -12,6 +12,7 @@ import * as THREE from '../../vendor/three.module.js';
 import { HAPKE_GLSL, hapkeUniforms } from '../sim/brdf.js';
 import { spotIntensity } from '../sim/camera.js';
 import { compose, mountPose } from '../sim/frames.js';
+import { objectSunVisibility } from '../sim/objects.js';
 
 const SHADOW_SIZE = 1024;
 
@@ -26,7 +27,17 @@ void main() {
   gl_Position = projectionMatrix * viewMatrix * vec4(position, 1.0);
 }`;
 
-function fragmentShader(nLights) {
+// Objects (vertical cylinders): geometric normals; sun visibility from a (height x angle) texture on the
+// wall and one value for the top cap, both computed with the CPU caster (terrain + objects).
+const VERT_OBJ = /* glsl */ `
+out vec3 vPos;
+out vec3 vNormal;
+void main() {
+  vPos = position; vNormal = normal;
+  gl_Position = projectionMatrix * viewMatrix * vec4(position, 1.0);
+}`;
+
+function fragmentShader(nLights, object = false) {
   let lights = '';
   for (let k = 0; k < nLights; k++) {
     lights += `
@@ -53,8 +64,7 @@ function fragmentShader(nLights) {
   return /* glsl */ `
 precision highp float;
 in vec3 vPos;
-in vec2 vGrad;
-in vec2 vUv;
+${object ? 'in vec3 vNormal;\nuniform sampler2D uObjVis;\nuniform vec4 uObj; // cx, cy, zb, zt\nuniform float uCapVis;' : 'in vec2 vGrad;\nin vec2 vUv;'}
 out vec4 outColor;
 uniform vec3 uCamPos;
 uniform vec3 uSunDir;
@@ -64,10 +74,15 @@ ${nLights ? `uniform vec3 uLightPos[${nLights}];\nuniform vec3 uLightAxis[${nLig
 ${samplers}
 ${HAPKE_GLSL}
 void main() {
-  vec3 n = normalize(vec3(-vGrad, 1.0));
+  ${object ? 'vec3 n = normalize(vNormal);' : 'vec3 n = normalize(vec3(-vGrad, 1.0));'}
   vec3 v = normalize(uCamPos - vPos);
   float L = 0.0;
-  if (uSunE > 0.0) L += uSunE * hapke(n, uSunDir, v) * texture(uLit, vUv).r;
+  ${object ? `float sunVis = uCapVis;
+  if (n.z < 0.5) {
+    float ang = atan(vPos.y - uObj.y, vPos.x - uObj.x);
+    sunVis = texture(uObjVis, vec2(fract(ang / (2.0 * PI_) + 1.0), (vPos.z - uObj.z) / (uObj.w - uObj.z))).r;
+  }
+  if (uSunE > 0.0) L += uSunE * hapke(n, uSunDir, v) * sunVis;` : 'if (uSunE > 0.0) L += uSunE * hapke(n, uSunDir, v) * texture(uLit, vUv).r;'}
   ${lights}
   outColor = vec4(L, 0.0, 0.0, 1.0);
 }`;
@@ -181,6 +196,20 @@ export class GpuCameraRenderer {
     this.distMesh = new THREE.Mesh(geo, this.distMaterial);
     this.distMesh.frustumCulled = false;
     this.distScene.add(this.distMesh);
+    for (const o of this.objMeshes || []) { this.scene.remove(o.mesh); this.distScene.remove(o.dist); o.mesh.geometry.dispose(); o.tex.dispose(); }
+    this.objMeshes = (world.objects || []).map((c) => {
+      const g = new THREE.CylinderGeometry(c.r, c.r, c.zt - c.zb, 96, 1, false);
+      g.rotateX(Math.PI / 2); // axis +y -> +z
+      g.translate(c.cx, c.cy, (c.zb + c.zt) / 2);
+      const tex = new THREE.DataTexture(new Uint8Array(64 * 64), 64, 64, THREE.RedFormat, THREE.UnsignedByteType);
+      tex.magFilter = tex.minFilter = THREE.LinearFilter; tex.wrapS = THREE.RepeatWrapping; tex.unpackAlignment = 1;
+      const mat = new THREE.ShaderMaterial({ glslVersion: THREE.GLSL3, vertexShader: VERT_OBJ, fragmentShader: fragmentShader(lights.length, true),
+        uniforms: { ...uniforms, uObjVis: { value: tex }, uObj: { value: new THREE.Vector4(c.cx, c.cy, c.zb, c.zt) }, uCapVis: { value: 0 } } });
+      const mesh = new THREE.Mesh(g, mat), dist = new THREE.Mesh(g, this.distMaterial);
+      mesh.frustumCulled = dist.frustumCulled = false;
+      this.scene.add(mesh); this.distScene.add(dist);
+      return { c, mesh, dist, tex, mat };
+    });
   }
 
   target(K) {
@@ -200,6 +229,14 @@ export class GpuCameraRenderer {
       this.litTex.image.data.set(world.sunlitFull().lit.map((x) => x * 255));
       this.litTex.needsUpdate = true;
       this.litVersion = world.sunVersion;
+      if (this.objMeshes.length) {
+        const s = world.sun.dir, vis = objectSunVisibility(this.objMeshes.map((o) => o.c), world.caster, s, 64, 64);
+        this.objMeshes.forEach((o, k) => {
+          o.tex.image.data.set(vis[k].vis); o.tex.needsUpdate = true;
+          const c = o.c, up = s[2] > 0 && !world.caster.occluded(c.cx, c.cy, c.zt + 2e-3, s[0], s[1], s[2]);
+          o.mat.uniforms.uCapVis.value = up ? 1 : 0;
+        });
+      }
     }
     const sun = world.sun;
     u.uSunDir.value.set(...sun.dir);

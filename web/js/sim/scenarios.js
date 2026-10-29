@@ -73,6 +73,7 @@ const LIGHTS = [
 /** Defaults for sensors added by a config file (see config.js). */
 export const TEMPLATES = {
   camera: CAMERAS[0], light: LIGHTS[0],
+  object: { name: 'object', type: 'cylinder', x: 0, y: 0, diameter: 10, height: 50, enabled: true },
   lidar: { flash: LIDARS[0], spinning: LIDARS[1] },
 };
 
@@ -82,6 +83,9 @@ const base = (name, seed, terrain, sun, site) => ({
   name, seed, site, sun, terrain,
   rover: { ...ROVER }, lidars: structuredClone(LIDARS), imu: { ...IMU, mount: { ...IMU.mount } },
   cameras: structuredClone(CAMERAS), lights: structuredClone(LIGHTS), reflectance: { ...HAPKE },
+  // Landmark (user request 2026-10): cylinder D 10 m x H 50 m, 200 m ahead of the start (rover faces east).
+  // Outside the 205 m grid: choose the 512 m size for ground under it; LiDAR rangeMax is 100 m.
+  objects: [{ name: 'tower', type: 'cylinder', x: 200, y: 0, diameter: 10, height: 50, enabled: true }],
 });
 
 export const SCENARIOS = {

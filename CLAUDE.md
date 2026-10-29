@@ -207,6 +207,10 @@ fractal (`terrain/fractal`) → tilt → craters (`terrain/craters/{count,size,p
   `setMount` で作り直す）/ `equiangular`（センサごと傾く）/ `pinhole`（従来）/ `equidistant`（f-θ）。JS `scanPattern` と Python
   `scan_pattern(cfg, mount)`（`flash_projection`、スキーマ既定は pinhole、south_pole_lowsun*.yaml は azel）で同じ式。
   SPAD の視野立体角も投影ごと（`flashSolidAngle` / 画素ごとの omega）。
+- 物体（2026-10 ユーザー依頼「200 m 先に直径 10 m・高さ 50 m の円筒」）: `sim/objects.js`（解析的な鉛直円筒、格子外も可）。
+  `World.caster` は `SceneCaster`（地形 `caster.terrain` + 物体）: `trace` / `occluded` / `traceHit`（LiDAR は物体の法線とラベル 4）。
+  GPU カメラは物体メッシュ + 壁面の太陽可視テクスチャ（`objectSunVisibility`）。地形だけと比べるテストは `objects: []` か `caster.terrain`。
+  Python 版には未実装。
 - 画角: `World.setFov(kind, name, params)`（パターン / 内部行列を作り直す、値はクランプ）。UI の変更は `sensorOverrides` で
   再生成後も保持。LiDAR の検証は `web/tests/ref_raycast.mjs`（独立参照実装）と `web/tools/dump_rays.mjs`（Python 比較）。
 - `World.advance(dt, {scans})`: `'all'` = 予定時刻のスキャンを全部（決定的、閉ループ用）、`'latest'` = 実時間用
