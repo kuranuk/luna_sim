@@ -93,3 +93,18 @@ test('sensor mounts: LiDAR on a 3.7 m mast looking 22° down; setMount / setSens
   assert.throws(() => w.setMount('lidar', 'spad_flash', { z: 'abc' }));
   assert.equal(resolveConfig({ lidars: [{ name: 'spad_flash', mount: { z: 1.0 } }] }).lidars[0].mount.pitchDeg, 22);
 });
+
+test('Moon-fixed -> ENU rotation used by the globe view', async () => {
+  const { enuFromMoonFixed } = await import('../js/sim/moon.js');
+  for (const [la, lo] of [[0, 0], [-89.5, 0], [30, 120], [-45, -70]]) {
+    const M = enuFromMoonFixed(la, lo), r = (i) => M.slice(3 * i, 3 * i + 3);
+    for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) {
+      const d = r(i).reduce((s, v, k) => s + v * r(j)[k], 0);
+      assert.ok(Math.abs(d - (i === j ? 1 : 0)) < 1e-12);
+    }
+    const a = la * Math.PI / 180, b = lo * Math.PI / 180, site = [Math.cos(a) * Math.cos(b), Math.cos(a) * Math.sin(b), Math.sin(a)];
+    const up = r(2).reduce((s, v, k) => s + v * site[k], 0);
+    assert.ok(Math.abs(up - 1) < 1e-12, 'the site direction is local up');
+    assert.ok(r(1)[2] >= 0, 'local north points towards the north pole'); // N . Z = cos(lat)
+  }
+});

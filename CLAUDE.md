@@ -211,6 +211,11 @@ fractal (`terrain/fractal`) → tilt → craters (`terrain/craters/{count,size,p
   `World.caster` は `SceneCaster`（地形 `caster.terrain` + 物体）: `trace` / `occluded` / `traceHit`（LiDAR は物体の法線とラベル 4）。
   GPU カメラは物体メッシュ + 壁面の太陽可視テクスチャ（`objectSunVisibility`）。地形だけと比べるテストは `objects: []` か `caster.terrain`。
   Python 版には未実装。
+- 月全体表示（2026-10 ユーザー依頼「ズームアウトで月全体を地球儀のように」）: `web/js/globe.js`（Three.js、メイン側のみ）。
+  球の中心 (0,0,-R)、Moon-fixed → ENU は `sim/moon.js` の `enuFromMoonFixed`（テストあり）、表面は 200 m 下げて地形を常に上に描く。
+  `logarithmicDepthBuffer`、OrbitControls は camera.up 変更時に作り直す（20 km で月中心周り・北極が上、高度 12 km で戻る）。
+  テクスチャは `web/assets/moon/color.jpg`（任意、`scripts/prepare_moon_texture.py`）、無ければ手続き生成の仮模様（UI に明記）。
+  NASA SVS はこの開発環境のネットワークで拒否されたため実画像は未同梱。
 - 画角: `World.setFov(kind, name, params)`（パターン / 内部行列を作り直す、値はクランプ）。UI の変更は `sensorOverrides` で
   再生成後も保持。LiDAR の検証は `web/tests/ref_raycast.mjs`（独立参照実装）と `web/tools/dump_rays.mjs`（Python 比較）。
 - `World.advance(dt, {scans})`: `'all'` = 予定時刻のスキャンを全部（決定的、閉ループ用）、`'latest'` = 実時間用

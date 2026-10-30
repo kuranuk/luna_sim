@@ -3,6 +3,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
+import { Globe, MOON_RADIUS } from './globe.js';
 import { resolveConfig, scenarioToConfig } from './sim/config.js';
 import { SCENARIOS, SIZES } from './sim/scenarios.js';
 
@@ -11,16 +12,24 @@ const DEG = Math.PI / 180;
 const worker = new Worker(new URL('./worker.js', import.meta.url), { type: 'module' });
 
 // ------------------------------------------------------------------ scene
-const renderer = new THREE.WebGLRenderer({ antialias: true });
+const renderer = new THREE.WebGLRenderer({ antialias: true, logarithmicDepthBuffer: true }); // cm .. Earth distance
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 $('view').appendChild(renderer.domElement);
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x000000);
-const camera = new THREE.PerspectiveCamera(55, 1, 0.05, 5000);
+const camera = new THREE.PerspectiveCamera(55, 1, 0.05, 2e9);
 camera.up.set(0, 0, 1);
 camera.position.set(-10, -10, 7);
-const controls = new OrbitControls(camera, renderer.domElement);
-controls.enableDamping = true;
+var globe = null, globeMode = false, sunElDeg = 0, fly = null; // eslint-disable-line no-var -- used by early 'change' events
+let controls = makeControls(new THREE.Vector3(0, 0, 0));
+function makeControls(target) { // rebuilt when camera.up changes (OrbitControls reads it only at construction)
+  const c = new OrbitControls(camera, renderer.domElement);
+  c.enableDamping = true;
+  c.maxDistance = 3e7; // ~17 Moon radii
+  c.target.copy(target);
+  c.addEventListener('change', onViewChange);
+  return c;
+}
 const ambient = new THREE.AmbientLight(0xffffff, 0.25); // display aid only (the Moon has no ambient light)
 scene.add(ambient);
 const sunLight = new THREE.DirectionalLight(0xffffff, 2.4);
@@ -86,7 +95,9 @@ function applySunlit(msg) {
 function updateSunVisual(sun) {
   const d = new THREE.Vector3(...sun.dir);
   sunLight.position.copy(d.clone().multiplyScalar(100));
-  sunLight.intensity = sun.elDeg > 0 ? 2.4 : 0;
+  sunElDeg = sun.elDeg;
+  sunLight.intensity = sun.elDeg > 0 || globeMode ? 2.4 : 0; // the globe is lit wherever the sun is up there
+  globe.setEarth(sun.earthDir, sun.earthDistance);
   sunArrow.setDirection(d);
   if (rover) sunArrow.position.copy(rover.position).add(new THREE.Vector3(0, 0, 2));
 }
@@ -155,7 +166,7 @@ function applyState(st) {
   const r = st.rover, R = r.R;
   rover.position.set(...r.position);
   rover.quaternion.setFromRotationMatrix(new THREE.Matrix4().set(R[0], R[1], R[2], 0, R[3], R[4], R[5], 0, R[6], R[7], R[8], 0, 0, 0, 0, 1));
-  if ($('follow').checked && lastRoverPos) {
+  if ($('follow').checked && lastRoverPos && !globeMode) {
     const delta = rover.position.clone().sub(lastRoverPos);
     camera.position.add(delta); controls.target.add(delta);
   }
@@ -192,7 +203,10 @@ worker.onmessage = (ev) => {
     lastRoverPos = null;
     applyState(m.state);
     const p = rover.position;
+    setGlobeMode(false);
     camera.position.set(p.x - 9, p.y - 9, p.z + 6); controls.target.copy(p);
+    globe.setSite(scenario.site);
+    globe.setEarth(m.state.sun.earthDir, m.state.sun.earthDistance);
     $('build-info').textContent = `${m.terrain.n}² 点 / ${m.terrain.res} m（${(m.terrain.extent[1] - m.terrain.extent[0]).toFixed(0)} m 四方）、クレーター ${m.terrain.craters}、岩 ${m.terrain.rocks}、生成 ${(m.buildMs / 1000).toFixed(1)} s`;
     $('lidars').innerHTML = '';
     for (const l of m.lidars) {
@@ -224,6 +238,68 @@ worker.onmessage = (ev) => {
     setTimeout(() => URL.revokeObjectURL(url), 5000);
   } else if (m.type === 'error') { $('busy').hidden = true; $('error').textContent = m.message; console.error(m.message); }
 };
+
+// ------------------------------------------------------------------ whole-Moon globe (zoom out)
+// Local mode: orbit around the rover (up = local vertical). Zooming out past GLOBE_OUT switches to the
+// globe mode: orbit around the Moon centre with the Moon's north axis up, like a desk globe. Zooming
+// back in below GLOBE_IN altitude returns to the rover if the site is underneath (else to that spot).
+const GLOBE_OUT = 20000, GLOBE_IN = 12000; // [m]
+globe = new Globe(scene);
+globe.onTexture = () => updateGlobeInfo();
+function updateGlobeInfo() { const e = $('globe-info'); if (e) e.textContent = `月面テクスチャ: ${globe.textureInfo}`; }
+updateGlobeInfo();
+function setGlobeMode(on, target) {
+  if (on === globeMode && !target) return;
+  globeMode = on;
+  const tgt = target || (on ? globe.center.clone() : (rover ? rover.position.clone() : new THREE.Vector3()));
+  controls.dispose();
+  camera.up.copy(on ? globe.north : new THREE.Vector3(0, 0, 1));
+  controls = makeControls(tgt);
+  controls.enablePan = !on;
+  camera.lookAt(tgt);
+  sunLight.intensity = sunElDeg > 0 || on ? 2.4 : 0;
+  ambient.intensity = on ? 0.05 : 0.25; // a crisp terminator on the globe
+  $('globe-btn').textContent = on ? 'ローバーに戻る' : '月全体を見る';
+}
+function onViewChange() {
+  if (!globe) return;
+  const d = camera.position.length(); // distance from the site (origin)
+  globe.update(d);
+  controls.zoomSpeed = Math.min(4, Math.max(1, 1 + Math.log10(Math.max(d, 1) / 200))); // fewer wheel steps far away
+  if (fly) return;
+  if (!globeMode && controls.target.distanceTo(camera.position) > GLOBE_OUT) setGlobeMode(true);
+  else if (globeMode) {
+    const rel = camera.position.clone().sub(globe.center), alt = rel.length() - MOON_RADIUS;
+    if (alt < GLOBE_IN) {
+      const surf = globe.center.clone().add(rel.normalize().multiplyScalar(MOON_RADIUS));
+      setGlobeMode(false, surf.length() < 50000 && rover ? rover.position.clone() : surf);
+    }
+  }
+}
+function flyTo(pos, target, ms = 1500) { // logarithmic-distance animation between two views
+  fly = { p0: camera.position.clone(), p1: pos, t0: performance.now(), ms, target };
+}
+function flyStep() {
+  if (!fly) return;
+  const u = Math.min(1, (performance.now() - fly.t0) / fly.ms), s = u * u * (3 - 2 * u);
+  const a = fly.p0.clone().sub(fly.target), b = fly.p1.clone().sub(fly.target);
+  const r = Math.exp(Math.log(a.length()) * (1 - s) + Math.log(b.length()) * s);
+  camera.position.copy(fly.target).add(a.normalize().lerp(b.normalize(), s).normalize().multiplyScalar(r));
+  camera.lookAt(fly.target);
+  if (u >= 1) { fly = null; onViewChange(); }
+}
+$('globe-btn').addEventListener('click', () => {
+  if (!globeMode) { // view the whole Moon from above the site
+    setGlobeMode(true);
+    $('follow').checked = false;
+    const up = camera.position.clone().sub(globe.center).normalize();
+    flyTo(globe.center.clone().add(up.multiplyScalar(MOON_RADIUS * 3.2)), globe.center.clone());
+  } else { // back to the rover
+    const p = rover ? rover.position.clone() : new THREE.Vector3();
+    setGlobeMode(false, p);
+    flyTo(p.clone().add(new THREE.Vector3(-9, -9, 6)), p);
+  }
+});
 
 // ------------------------------------------------------------------ scene objects (analytic cylinders)
 let objectGroup = null;
@@ -605,7 +681,7 @@ function resize() {
 }
 window.addEventListener('resize', resize);
 resize();
-renderer.setAnimationLoop(() => { controls.update(); renderer.render(scene, camera); });
+renderer.setAnimationLoop(() => { flyStep(); controls.update(); renderer.render(scene, camera); });
 
 for (const b of document.querySelectorAll('#tabs button')) {
   b.addEventListener('click', () => {

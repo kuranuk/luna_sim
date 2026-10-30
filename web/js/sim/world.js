@@ -210,7 +210,8 @@ export class World {
         command: { v: r.v, omega: r.omega }, slip: r.status.slip, warnings: r.status.warnings,
         waypointsRemaining: this.follower ? this.follower.points.length - this.follower.index : 0,
       },
-      sun: { azDeg: this.sun.az / DEG, elDeg: this.sun.el / DEG, dir: this.sun.dir },
+      sun: { azDeg: this.sun.az / DEG, elDeg: this.sun.el / DEG, dir: this.sun.dir, earthDir: this.sun.earthDir || null,
+        earthDistance: this.sun.earthDistance || null },
     };
   }
 
