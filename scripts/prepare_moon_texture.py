@@ -4,8 +4,11 @@ Input: an equirectangular lunar colour map, longitude -180..180 left to right, n
 NASA SVS "CGI Moon Kit" (https://svs.gsfc.nasa.gov/4720, public domain, credit NASA's Scientific
 Visualization Studio): lroc_color_poles_1k.jpg / _2k.tif / _4k.tif (16-bit TIFFs are supported).
 Output: web/assets/moon/color.jpg (8-bit sRGB JPEG), loaded automatically by web/js/globe.js.
+With ``--kind elevation`` an equirectangular elevation map (e.g. the kit's LOLA ldem_*), shown as
+relief shading (bump map): web/assets/moon/elevation.jpg (8-bit grey, higher = brighter).
 
     python scripts/prepare_moon_texture.py lroc_color_poles_4k.tif --width 4096
+    python scripts/prepare_moon_texture.py ldem_4.tif --kind elevation --width 1440
 """
 
 from __future__ import annotations
@@ -17,7 +20,10 @@ import numpy as np
 from PIL import Image
 
 ROOT = Path(__file__).resolve().parents[1]
-OUT = ROOT / "web" / "assets" / "moon" / "color.jpg"
+OUT = {
+    "color": ROOT / "web" / "assets" / "moon" / "color.jpg",
+    "elevation": ROOT / "web" / "assets" / "moon" / "elevation.jpg",
+}
 
 
 def load_rgb8(path: Path) -> Image.Image:
@@ -33,7 +39,7 @@ def load_rgb8(path: Path) -> Image.Image:
                 a = (a.astype(np.float64) / 257.0).round().astype(np.uint8)
             if a.ndim == 2:
                 a = np.repeat(a[:, :, None], 3, axis=2)
-            return Image.fromarray(a[:, :, :3].astype(np.uint8), "RGB")
+            return Image.fromarray(np.ascontiguousarray(a[:, :, :3].astype(np.uint8)))
     else:
         img = Image.open(path)
     return img.convert("RGB")
@@ -47,16 +53,22 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument(
         "--width", type=int, default=2048, help="output width [px] (height = width / 2)"
     )
-    ap.add_argument("--out", type=Path, default=OUT)
+    ap.add_argument("--kind", choices=["color", "elevation"], default="color")
+    ap.add_argument("--out", type=Path, default=None)
     args = ap.parse_args(argv)
+    out = args.out or OUT[args.kind]
     img = load_rgb8(args.source)
+    if args.kind == "elevation":
+        a = np.asarray(img.convert("L"), dtype=np.float64)  # stretch to the full 8-bit range
+        lo, hi = float(a.min()), float(a.max())
+        img = Image.fromarray(((a - lo) / max(hi - lo, 1e-9) * 255).round().astype(np.uint8))
     w, h = img.size
     if abs(w - 2 * h) > 1:
         raise SystemExit(f"expected an equirectangular 2:1 image, got {w}x{h}")
     img = img.resize((args.width, args.width // 2), Image.LANCZOS)
-    args.out.parent.mkdir(parents=True, exist_ok=True)
-    img.save(args.out, quality=90)
-    print(f"wrote {args.out} ({args.width}x{args.width // 2})")
+    out.parent.mkdir(parents=True, exist_ok=True)
+    img.save(out, quality=90)
+    print(f"wrote {out} ({args.width}x{args.width // 2})")
     return 0
 
 

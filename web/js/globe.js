@@ -2,8 +2,9 @@
 // The globe is drawn in the local ENU frame of the site: Moon centre at (0, 0, -R), the site on top,
 // north along +y (Moon-fixed ME frame -> ENU rotation). It is lit by the same sun direction as the
 // terrain (sun at infinity), so the terminator is where it really is at the simulated time.
-// Texture: web/assets/moon/color.jpg if present (equirectangular, longitude -180..180 left to right,
-// north up; e.g. NASA SVS "CGI Moon Kit" lroc_color_poles_*), otherwise a procedural placeholder.
+// Texture: web/assets/moon/color.jpg (equirectangular, longitude -180..180 left to right, north up:
+// NASA SVS "CGI Moon Kit" LROC WAC colour map, public domain) and web/assets/moon/elevation.jpg (LOLA
+// elevation from the same kit) as relief shading; a procedural placeholder if the colour map is missing.
 
 import * as THREE from 'three';
 
@@ -43,6 +44,44 @@ function placeholderTexture() {
   return tex;
 }
 
+// Relief from the 8-bit elevation map: the full range is taken as the LOLA range (about -9.1 .. +10.8 km),
+// exaggerated for visibility. Normals are computed in the Moon-fixed frame from central differences
+// (metres on the sphere) and stored in the sphere's object frame (x = X, y = Z, z = -Y).
+export const RELIEF_EXAGGERATION = 3;
+const ELEV_RANGE = 19900; // [m] 8-bit 0..255 (stretched by scripts/prepare_moon_texture.py)
+
+function demNormalMap(img) {
+  const w = img.width, h = img.height, cv = document.createElement('canvas');
+  cv.width = w; cv.height = h;
+  const g = cv.getContext('2d');
+  g.drawImage(img, 0, 0);
+  const src = g.getImageData(0, 0, w, h), out = g.createImageData(w, h), k = ELEV_RANGE / 255 * RELIEF_EXAGGERATION;
+  const H = (i, j) => src.data[4 * (Math.min(Math.max(i, 0), h - 1) * w + ((j + w) % w))] * k;
+  const dLat = Math.PI / h, dLon = 2 * Math.PI / w;
+  for (let i = 0; i < h; i++) {
+    const lat = Math.PI / 2 - (i + 0.5) * dLat, sl = Math.sin(lat), cl = Math.cos(lat);
+    // East-west difference over about the same ground distance as north-south (kx pixels apart): near
+    // the poles adjacent columns are only metres apart and the 8-bit steps would become steep streaks.
+    const kx = Math.min(w >> 3, Math.max(1, Math.round(1 / Math.max(cl, 1e-3))));
+    const dy = 2 * MOON_RADIUS * dLat, dx = 2 * MOON_RADIUS * cl * dLon * kx;
+    const fade = Math.min(1, Math.max(0, (90 - Math.abs(lat) * 180 / Math.PI) / 2)); // flat at the pole itself
+    for (let j = 0; j < w; j++) {
+      const lon = -Math.PI + (j + 0.5) * dLon, so = Math.sin(lon), co = Math.cos(lon);
+      const ge = (H(i, j + kx) - H(i, j - kx)) / dx, gn = (H(i - 1, j) - H(i + 1, j)) / dy; // dh/dEast, dh/dNorth
+      const ne = -ge * fade, nn = -gn * fade, inv = 1 / Math.hypot(ne, nn, 1);
+      // ENU -> Moon-fixed: E = (-so, co, 0), N = (-sl co, -sl so, cl), U = (cl co, cl so, sl)
+      const X = (-so * ne - sl * co * nn + cl * co) * inv, Y = (co * ne - sl * so * nn + cl * so) * inv, Z = (cl * nn + sl) * inv;
+      const p = 4 * (i * w + j);
+      out.data[p] = (X * 0.5 + 0.5) * 255; out.data[p + 1] = (Z * 0.5 + 0.5) * 255; out.data[p + 2] = (-Y * 0.5 + 0.5) * 255;
+      out.data[p + 3] = 255;
+    }
+  }
+  g.putImageData(out, 0, 0);
+  const tex = new THREE.CanvasTexture(cv);
+  tex.colorSpace = THREE.NoColorSpace;
+  return tex;
+}
+
 export class Globe {
   constructor(scene) {
     this.scene = scene;
@@ -51,13 +90,20 @@ export class Globe {
     this.group.visible = false;
     scene.add(this.group);
     this.material = new THREE.MeshLambertMaterial({ color: 0xffffff, map: placeholderTexture() });
-    this.textureInfo = '仮の模様（手続き生成、実際の地形ではありません）';
+    this.colorInfo = null; // set when the real colour map loads
     new THREE.TextureLoader().load('assets/moon/color.jpg', (tex) => { // optional real map
       tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 8;
       this.material.map = tex; this.material.needsUpdate = true;
-      this.textureInfo = `web/assets/moon/color.jpg（${tex.image.width}×${tex.image.height}）`;
+      this.colorInfo = `${tex.image.width}×${tex.image.height}`;
       if (this.onTexture) this.onTexture();
     }, undefined, () => { /* keep the placeholder */ });
+    new THREE.ImageLoader().load('assets/moon/elevation.jpg', (img) => { // relief shading from the DEM
+      this.material.normalMap = demNormalMap(img);
+      this.material.normalMapType = THREE.ObjectSpaceNormalMap;
+      this.material.needsUpdate = true;
+      this.hasRelief = true;
+      if (this.onTexture) this.onTexture();
+    }, undefined, () => {});
     // Moon sphere in Three's sphere frame (y = pole; u = 0 at longitude -180): x = X, y = Z, z = -Y.
     this.sphere = new THREE.Mesh(new THREE.SphereGeometry(MOON_RADIUS - SINK, 256, 128), this.material);
     this.group.add(this.sphere);
@@ -84,6 +130,11 @@ export class Globe {
     scene.add(this.earth);
     this.center = new THREE.Vector3(0, 0, -MOON_RADIUS);
     this.north = new THREE.Vector3(0, 0, 1);
+  }
+
+  get textureInfo() {
+    if (!this.colorInfo) return '仮の模様（手続き生成、実際の地形ではありません）';
+    return `NASA SVS CGI Moon Kit（LROC カラー ${this.colorInfo}${this.hasRelief ? ` + LOLA 標高による凹凸の陰影（${RELIEF_EXAGGERATION} 倍強調）` : ''}）`;
   }
 
   /** Place the globe for a site { lat, lon } [deg]. */

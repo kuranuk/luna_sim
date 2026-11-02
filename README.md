@@ -131,9 +131,10 @@ CPU の式と 0.6 % 以内で一致します。歪みなしのピンホール、
 球はサイトの局所座標（ENU）に正しい向きで置かれ、太陽光は地形と同じ方向なので昼夜の境目は実際の位置です（日時モードでは地球も表示）。
 赤い輪がサイトです。
 
-月面テクスチャは `web/assets/moon/color.jpg`（正距円筒図法、経度 -180〜180、北が上）を置くと使われ、無ければ手続き生成の
-仮の模様です（実際の地形ではありません）。NASA SVS「CGI Moon Kit」（パブリックドメイン）の `lroc_color_poles_*.tif` を
-`python scripts/prepare_moon_texture.py lroc_color_poles_4k.tif --width 4096` で変換して置いてください。
+月面は実データです: NASA SVS「CGI Moon Kit」の LROC WAC カラー地図（`web/assets/moon/color.jpg`, 4096×2048）と
+LOLA 標高（`elevation.jpg`, 1024×512）から計算した凹凸の陰影（3 倍強調）。出典・取得経路は `web/assets/moon/README.md`
+（Credit: NASA's Scientific Visualization Studio、パブリックドメイン）。高解像度版に替えるときは
+`python scripts/prepare_moon_texture.py lroc_color_poles_8k.tif --width 8192`（標高は `--kind elevation`）。
 
 ### 物体（円筒）
 

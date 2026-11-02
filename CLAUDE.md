@@ -214,8 +214,10 @@ fractal (`terrain/fractal`) → tilt → craters (`terrain/craters/{count,size,p
 - 月全体表示（2026-10 ユーザー依頼「ズームアウトで月全体を地球儀のように」）: `web/js/globe.js`（Three.js、メイン側のみ）。
   球の中心 (0,0,-R)、Moon-fixed → ENU は `sim/moon.js` の `enuFromMoonFixed`（テストあり）、表面は 200 m 下げて地形を常に上に描く。
   `logarithmicDepthBuffer`、OrbitControls は camera.up 変更時に作り直す（20 km で月中心周り・北極が上、高度 12 km で戻る）。
-  テクスチャは `web/assets/moon/color.jpg`（任意、`scripts/prepare_moon_texture.py`）、無ければ手続き生成の仮模様（UI に明記）。
-  NASA SVS はこの開発環境のネットワークで拒否されたため実画像は未同梱。
+  テクスチャは実データ同梱: `web/assets/moon/color.jpg`（NASA SVS CGI Moon Kit の LROC カラー 16k を 4096 に縮小）と
+  `elevation.jpg`（同キットの LOLA 標高 8 bit）。SVS は開発環境から拒否されたので vasturiano/globe.gl の例の同一ファイル
+  （EXIF に SVS のパス）から取得（経緯は `web/assets/moon/README.md`）。凹凸は標高から物体空間 normal map を計算
+  （`demNormalMap`、3 倍強調、経度方向の差分幅を緯度で広げて極のすじを抑える）。色地図が無いときだけ手続き生成の仮模様。
 - 画角: `World.setFov(kind, name, params)`（パターン / 内部行列を作り直す、値はクランプ）。UI の変更は `sensorOverrides` で
   再生成後も保持。LiDAR の検証は `web/tests/ref_raycast.mjs`（独立参照実装）と `web/tools/dump_rays.mjs`（Python 比較）。
 - `World.advance(dt, {scans})`: `'all'` = 予定時刻のスキャンを全部（決定的、閉ループ用）、`'latest'` = 実時間用
