@@ -136,6 +136,23 @@ LOLA 標高（`elevation.jpg`, 1024×512）から計算した凹凸の陰影（3
 （Credit: NASA's Scientific Visualization Studio、パブリックドメイン）。高解像度版に替えるときは
 `python scripts/prepare_moon_texture.py lroc_color_poles_8k.tif --width 8192`（標高は `--kind elevation`）。
 
+### 路面モデルタブ
+
+「路面モデル」タブのチェックボックスで、路面のモデルを個別に使う / 使わないを選べます。
+
+| 項目 | 設定のキー | 反映 |
+|---|---|---|
+| フラクタル起伏 | `terrain.fractal.enabled` | 地形を再生成 |
+| 地域の傾斜 | `terrain.tilt.enabled` | 地形を再生成 |
+| クレーター | `terrain.craters.enabled` | 地形を再生成 |
+| 岩（散在） | `terrain.rocks.background` | 地形を再生成 |
+| 岩（クレーター周りの放出岩塊、クレーターが必要） | `terrain.rocks.ejecta` | 地形を再生成 |
+| 物体（円筒など） | `objects[].enabled` | 地形を再生成 |
+| 斜度に応じた車輪のすべり | `rover.slipEnabled` | すぐ反映 |
+| 横傾斜での横流れ | `rover.lateralEnabled` | すぐ反映 |
+
+選択は再生成・プリセット変更でも保持され、「設定ファイル → 書き出す」の JSON に入ります（設定ファイルで直接指定も可）。
+
 ### 物体（円筒）
 
 地形の格子とは別に、解析的な円筒を置けます（`web/js/sim/objects.js`）。プリセットには、スタート地点（原点・東向き）の

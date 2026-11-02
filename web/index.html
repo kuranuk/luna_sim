@@ -35,7 +35,7 @@
   <div id="view"></div>
   <aside id="panel">
     <h1>LunarSim <small>web</small></h1>
-    <nav id="tabs"><button data-tab="sim" class="active">シミュレーション</button><button data-tab="sensors">センサ配置</button></nav>
+    <nav id="tabs"><button data-tab="sim" class="active">シミュレーション</button><button data-tab="sensors">センサ配置</button><button data-tab="models">路面モデル</button></nav>
     <div data-panel="sim">
     <section>
       <h2>シナリオ</h2>
@@ -129,6 +129,15 @@
         座標は車体 FLU: x 前・y 左・z 上、原点は車体中心（平地で地面から 0.5 m）。角度は ZYX オイラーで
         ピッチ + = 下向き、ヨー + = 左（0 = 前、180 = 後ろ）。3D 表示の車体に各センサの位置と向きを表示します。</p>
       <div id="mounts"></div>
+    </div>
+    <div data-panel="models" hidden>
+      <p class="hint">路面（地形と走行）のモデルを個別に使う / 使わないを選びます。地形の項目は変更すると地形を作り直し、
+        走行の項目はすぐ反映されます。設定は再生成・プリセット変更・設定の書き出しでも保持されます。</p>
+      <h2>地形（変更で再生成）</h2>
+      <div id="models-terrain"></div>
+      <h2>走行（すぐ反映）</h2>
+      <div id="models-rover"></div>
+      <button id="models-all">すべて使う</button>
     </div>
     <pre id="hud"></pre>
     <p class="hint">影は CPU のレイキャストで計算（太陽円盤は点光源扱い）。表示の陰影と弱い環境光は見やすさのための近似です。</p>

@@ -93,8 +93,10 @@ export class Rover {
   step(h) {
     if (h <= 0 || this.status.warnings.includes('tipped_over')) return this.status;
     const c = this.cfg, ct = this.contact, v = this.v;
-    const slip = v !== 0 ? this.slipFor(v >= 0 ? -ct.pitch : ct.pitch) : 0;
-    const vx = v * (1 - slip), vy = -c.lateralCoefficient * Math.abs(v) * Math.sin(ct.roll), wz = this.omega;
+    // cfg.slipEnabled / lateralEnabled = false switch the slope-dependent slip / sideways drift off
+    const slip = v !== 0 && c.slipEnabled !== false ? this.slipFor(v >= 0 ? -ct.pitch : ct.pitch) : 0;
+    const vy = c.lateralEnabled !== false ? -c.lateralCoefficient * Math.abs(v) * Math.sin(ct.roll) : 0;
+    const vx = v * (1 - slip), wz = this.omega;
     const half = 0.5 * wz * h, yawMid = this.yaw + half, chord = Math.abs(half) > 1e-12 ? Math.sin(half) / half : 1;
     const vh = vx * Math.cos(ct.pitch);
     this.x += (vh * Math.cos(yawMid) - vy * Math.sin(yawMid)) * h * chord;

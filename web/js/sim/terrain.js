@@ -221,8 +221,10 @@ export function sampleRocks(extent, p, craters, seed) {
   const make = (r, d, x, y) => ({ x, y, d, h: p.heightRatio * d, axis: r.uniform(p.axisRatioMin, 1), orient: r.uniform(0, Math.PI) });
   const rb = rng(seed, 'terrain/rocks/background');
   const area = (extent[1] - extent[0]) * (extent[3] - extent[2]);
-  for (const d of rockDiameters(p.k, p.dMin, p.dMax, area, rb)) {
-    out.push(make(rb, d, rb.uniform(extent[0], extent[1]), rb.uniform(extent[2], extent[3])));
+  if (p.background !== false) { // scattered background rocks (false: only the ejecta blocks)
+    for (const d of rockDiameters(p.k, p.dMin, p.dMax, area, rb)) {
+      out.push(make(rb, d, rb.uniform(extent[0], extent[1]), rb.uniform(extent[2], extent[3])));
+    }
   }
   if (p.ejecta) { // blocks around fresh craters (rim / proximal ejecta annulus 0.8-2.5 R)
     const re = rng(seed, 'terrain/rocks/ejecta');
@@ -265,7 +267,7 @@ export function buildTerrain(sc) {
   const t = sc.terrain, n = t.n, res = t.res;
   const x0 = -0.5 * (n - 1) * res, y0 = x0;
   const z = fractal(n, res, t.fractal, sc.seed);
-  if (t.tilt.slopeDeg > 0) {
+  if (t.tilt.enabled !== false && t.tilt.slopeDeg > 0) {
     const az = t.tilt.downhillAzimuthDeg * Math.PI / 180, grade = Math.tan(t.tilt.slopeDeg * Math.PI / 180);
     const gx = Math.sin(az), gy = Math.cos(az);
     for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) z[i * n + j] -= grade * ((x0 + j * res) * gx + (y0 + i * res) * gy);

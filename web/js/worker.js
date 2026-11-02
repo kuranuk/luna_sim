@@ -284,6 +284,7 @@ self.onmessage = (ev) => {
     else if (m.type === 'lidar') { const l = world.lidars.find((x) => x.cfg.name === m.name); if (l) l.enabled = m.on; }
     else if (m.type === 'camera') { const c = world.cameras.find((x) => x.cfg.name === m.name); if (c) c.enabled = m.on; }
     else if (m.type === 'lights') world.lightsOn = m.on;
+    else if (m.type === 'rover-model') Object.assign(world.scenario.rover, m.flags); // live: slip / drift on-off
     else if (m.type === 'sensor') {
       const cfg = world.setSensor(m.kind, m.name, m.params);
       post({ type: 'sensor', kind: m.kind, name: m.name, cfg });

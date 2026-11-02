@@ -218,6 +218,9 @@ fractal (`terrain/fractal`) → tilt → craters (`terrain/craters/{count,size,p
   `elevation.jpg`（同キットの LOLA 標高 8 bit）。SVS は開発環境から拒否されたので vasturiano/globe.gl の例の同一ファイル
   （EXIF に SVS のパス）から取得（経緯は `web/assets/moon/README.md`）。凹凸は標高から物体空間 normal map を計算
   （`demNormalMap`、3 倍強調、経度方向の差分幅を緯度で広げて極のすじを抑える）。色地図が無いときだけ手続き生成の仮模様。
+- 路面モデルタブ（2026-11 ユーザー依頼）: `main.js` の `MODELS`（scenario のフラグ: terrain.fractal/tilt/craters.enabled、
+  rocks.background / ejecta、objects[].enabled、rover.slipEnabled / lateralEnabled）。地形は再生成（400 ms まとめ）、走行は worker の
+  `rover-model` で即時。`modelOverrides` で再生成・プリセット変更に保持（設定ファイル読み込みで解除）。テスト `web/tests/models.test.mjs`。
 - 画角: `World.setFov(kind, name, params)`（パターン / 内部行列を作り直す、値はクランプ）。UI の変更は `sensorOverrides` で
   再生成後も保持。LiDAR の検証は `web/tests/ref_raycast.mjs`（独立参照実装）と `web/tools/dump_rays.mjs`（Python 比較）。
 - `World.advance(dt, {scans})`: `'all'` = 予定時刻のスキャンを全部（決定的、閉ループ用）、`'latest'` = 実時間用

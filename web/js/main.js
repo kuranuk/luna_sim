@@ -219,6 +219,7 @@ worker.onmessage = (ev) => {
       $('lidars').appendChild(lab);
     }
     setupSensorTab(m.sensors);
+    setupModelsTab();
     drawObjects(m.objects);
     if (m.outsideObjects.length) {
       $('build-info').textContent += `　※ ${m.outsideObjects.join(', ')} は地形の範囲外（下に地面がありません。範囲 512 m で地面の上に立ちます）`;
@@ -299,6 +300,53 @@ $('globe-btn').addEventListener('click', () => {
     setGlobeMode(false, p);
     flyTo(p.clone().add(new THREE.Vector3(-9, -9, 6)), p);
   }
+});
+
+// ------------------------------------------------------------------ surface model toggles (路面モデル tab)
+// Each entry switches one model on / off in the scenario. Terrain entries rebuild the terrain; rover
+// entries are sent to the worker and apply immediately. Kept across rebuilds, presets and config files.
+const MODELS = [
+  { key: 'fractal', group: 'terrain', label: 'フラクタル起伏（細かな凹凸・うねり）', get: (s) => s.terrain.fractal.enabled, set: (s, v) => { s.terrain.fractal.enabled = v; } },
+  { key: 'tilt', group: 'terrain', label: '地域の傾斜（一様な斜面）', get: (s) => s.terrain.tilt.enabled !== false, set: (s, v) => { s.terrain.tilt.enabled = v; } },
+  { key: 'craters', group: 'terrain', label: 'クレーター（リム・放出物の盛り上がり込み）', get: (s) => s.terrain.craters.enabled, set: (s, v) => { s.terrain.craters.enabled = v; } },
+  { key: 'rocks', group: 'terrain', label: '岩（散在する岩）', get: (s) => s.terrain.rocks.enabled && s.terrain.rocks.background !== false, set: (s, v) => { s.terrain.rocks.background = v; s.terrain.rocks.enabled = v || s.terrain.rocks.ejecta; } },
+  { key: 'ejecta', group: 'terrain', label: '岩（新しいクレーター周りの放出岩塊）', get: (s) => s.terrain.rocks.enabled && !!s.terrain.rocks.ejecta, set: (s, v) => { s.terrain.rocks.ejecta = v; s.terrain.rocks.enabled = v || s.terrain.rocks.background !== false; } },
+  { key: 'objects', group: 'terrain', label: '物体（円筒などの人工物）', get: (s) => (s.objects || []).some((o) => o.enabled !== false), set: (s, v) => { for (const o of s.objects || []) o.enabled = v; } },
+  { key: 'slip', group: 'rover', label: '斜度に応じた車輪のすべり（登りで遅く、下りで滑る）', get: (s) => s.rover.slipEnabled !== false, set: (s, v) => { s.rover.slipEnabled = v; } },
+  { key: 'lateral', group: 'rover', label: '横傾斜での横流れ', get: (s) => s.rover.lateralEnabled !== false, set: (s, v) => { s.rover.lateralEnabled = v; } },
+];
+const modelOverrides = {}; // key -> boolean
+function applyModelOverrides(sc) { for (const m of MODELS) if (modelOverrides[m.key] !== undefined) m.set(sc, modelOverrides[m.key]); }
+let modelRebuild = null;
+function setupModelsTab() {
+  for (const g of ['terrain', 'rover']) $(`models-${g}`).innerHTML = '';
+  for (const m of MODELS) {
+    const lab = document.createElement('label');
+    lab.innerHTML = `<input type="checkbox" data-model="${m.key}" ${m.get(scenario) ? 'checked' : ''}> ${m.label}`;
+    if (m.key === 'ejecta' && !scenario.terrain.craters.enabled) lab.title = 'クレーターを使わないと放出岩塊もありません';
+    lab.querySelector('input').addEventListener('change', (e) => setModel(m, e.target.checked));
+    $(`models-${m.group}`).appendChild(lab);
+  }
+}
+function setModel(m, on) {
+  modelOverrides[m.key] = on;
+  m.set(scenario, on);
+  if (m.group === 'rover') {
+    worker.postMessage({ type: 'rover-model', flags: { slipEnabled: scenario.rover.slipEnabled !== false, lateralEnabled: scenario.rover.lateralEnabled !== false } });
+  } else { // terrain: rebuild (debounced so that several boxes can be clicked in a row)
+    clearTimeout(modelRebuild);
+    modelRebuild = setTimeout(build, 400);
+  }
+}
+$('models-all').addEventListener('click', () => {
+  let terrain = false;
+  for (const m of MODELS) {
+    if (m.get(scenario)) continue;
+    modelOverrides[m.key] = true; m.set(scenario, true);
+    if (m.group === 'terrain') terrain = true;
+  }
+  worker.postMessage({ type: 'rover-model', flags: { slipEnabled: true, lateralEnabled: true } });
+  if (terrain) build(); else setupModelsTab();
 });
 
 // ------------------------------------------------------------------ scene objects (analytic cylinders)
@@ -496,6 +544,7 @@ function loadConfig(obj, label) {
   try { sc = resolveConfig(obj); } catch (e) { $('cfg-info').textContent = ''; $('error').textContent = e.message; return false; }
   customConfig = { obj, base: obj.base || 'south_pole_lowsun', label };
   for (const k of Object.keys(sensorOverrides)) delete sensorOverrides[k]; // the file is the new reference
+  for (const k of Object.keys(modelOverrides)) delete modelOverrides[k];
   $('seed').value = sc.seed;
   $('site').textContent = `${sc.site.lat}°, ${sc.site.lon}°`;
   setSunUi(sc.sun);
@@ -555,6 +604,7 @@ function build() {
   if (SIZES[$('size').value]) Object.assign(scenario.terrain, SIZES[$('size').value]);
   scenario.seed = Math.max(0, Math.floor(+$('seed').value || 0));
   applySensorOverrides(scenario);
+  applyModelOverrides(scenario);
   const astro = document.querySelector('input[name=sunmode]:checked').value === 'astro';
   scenario.sun = astro ? { ...scenario.sun, mode: 'astronomical', utc: `${$('sun-utc').value}:00Z` }
     : { ...scenario.sun, mode: 'manual', azDeg: +$('sun-az').value, elDeg: +$('sun-el').value };
