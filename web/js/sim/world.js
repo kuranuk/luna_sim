@@ -112,6 +112,23 @@ export class World {
     return cfg;
   }
 
+  /** Add a camera at run time (cfg as in scenarios.js; name must be new). Its first frame is due now. */
+  addCamera(cfg) {
+    if (!cfg || !cfg.name || this.cameras.some((c) => c.cfg.name === cfg.name)) throw new Error(`camera name ${cfg && cfg.name} missing or taken`);
+    if (!this.scenario.cameras) this.scenario.cameras = [];
+    this.scenario.cameras.push(cfg);
+    const cam = { cfg, K: intrinsics(cfg), frame: 0, next: this.time, enabled: cfg.enabled !== false };
+    this.cameras.push(cam);
+    return cam;
+  }
+
+  removeCamera(name) {
+    const k = this.cameras.findIndex((c) => c.cfg.name === name);
+    if (k < 0) throw new Error(`no camera ${name}`);
+    this.cameras.splice(k, 1);
+    this.scenario.cameras = this.scenario.cameras.filter((c) => c.name !== name);
+  }
+
   /** setFov + setMount in one call (params may hold field-of-view keys and `mount`). */
   setSensor(kind, name, params) {
     const { mount, ...fov } = params;

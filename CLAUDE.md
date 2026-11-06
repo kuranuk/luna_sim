@@ -218,6 +218,9 @@ fractal (`terrain/fractal`) → tilt → craters (`terrain/craters/{count,size,p
   `elevation.jpg`（同キットの LOLA 標高 8 bit）。SVS は開発環境から拒否されたので vasturiano/globe.gl の例の同一ファイル
   （EXIF に SVS のパス）から取得（経緯は `web/assets/moon/README.md`）。凹凸は標高から物体空間 normal map を計算
   （`demNormalMap`、3 倍強調、経度方向の差分幅を緯度で広げて極のすじを抑える）。色地図が無いときだけ手続き生成の仮模様。
+- カメラの追加・削除（2026-11 ユーザー依頼「後ろにもう一台」）: `World.addCamera` / `removeCamera`、worker の `add-camera` /
+  `remove-camera`（追加時にすぐ 1 枚撮る）、main の `addedCameras` / `removedCameras` で再生成に保持。画像は 1 台ずつのフローティング窓
+  （`.cam-win`、ドラッグ移動・幅変更、位置は localStorage）。路面モデルの各項目と月全体表示には出典を表示（docs/references.md と同じ）。
 - 路面モデルタブ（2026-11 ユーザー依頼）: `main.js` の `MODELS`（scenario のフラグ: terrain.fractal/tilt/craters.enabled、
   rocks.background / ejecta、objects[].enabled、rover.slipEnabled / lateralEnabled）。地形は再生成（400 ms まとめ）、走行は worker の
   `rover-model` で即時。`modelOverrides` で再生成・プリセット変更に保持（設定ファイル読み込みで解除）。テスト `web/tests/models.test.mjs`。

@@ -5,7 +5,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
 import { Globe, MOON_RADIUS } from './globe.js';
 import { resolveConfig, scenarioToConfig } from './sim/config.js';
-import { SCENARIOS, SIZES } from './sim/scenarios.js';
+import { SCENARIOS, SIZES, TEMPLATES } from './sim/scenarios.js';
 
 const $ = (id) => document.getElementById(id);
 const DEG = Math.PI / 180;
@@ -231,6 +231,7 @@ worker.onmessage = (ev) => {
   else if (m.type === 'camera') showCamera(m);
   else if (m.type === 'cameras') setupCameras(m);
   else if (m.type === 'sensor') sensorApplied(m);
+  else if (m.type === 'sensor-list') setupSensorTab(m.sensors);
   else if (m.type === 'lidar') updateCloud(m);
   else if (m.type === 'export') {
     const url = URL.createObjectURL(new Blob([m.data], { type: m.mime }));
@@ -247,7 +248,17 @@ worker.onmessage = (ev) => {
 const GLOBE_OUT = 20000, GLOBE_IN = 12000; // [m]
 globe = new Globe(scene);
 globe.onTexture = () => updateGlobeInfo();
-function updateGlobeInfo() { const e = $('globe-info'); if (e) e.textContent = `月面テクスチャ: ${globe.textureInfo}`; }
+const MOON_CREDIT = '月面: <a href="https://svs.gsfc.nasa.gov/4720" target="_blank" rel="noopener">NASA SVS CGI Moon Kit</a>'
+  + '（カラー: LRO / LROC WAC、標高: LRO / LOLA。NASA Goddard Space Flight Center Scientific Visualization Studio、パブリックドメイン）';
+function updateGlobeInfo() {
+  const e = $('globe-info');
+  if (e) {
+    e.innerHTML = globe.colorInfo
+      ? `${MOON_CREDIT}。カラー ${globe.colorInfo}${globe.hasRelief ? '、標高から計算した凹凸の陰影（3 倍強調）' : ''}。`
+      : `月面テクスチャ: ${globe.textureInfo}`;
+  }
+  $('credit').innerHTML = globe.colorInfo ? MOON_CREDIT : '';
+}
 updateGlobeInfo();
 function setGlobeMode(on, target) {
   if (on === globeMode && !target) return;
@@ -266,6 +277,7 @@ function onViewChange() {
   if (!globe) return;
   const d = camera.position.length(); // distance from the site (origin)
   globe.update(d);
+  $('credit').hidden = !globe.group.visible || !globe.colorInfo;
   controls.zoomSpeed = Math.min(4, Math.max(1, 1 + Math.log10(Math.max(d, 1) / 200))); // fewer wheel steps far away
   if (fly) return;
   if (!globeMode && controls.target.distanceTo(camera.position) > GLOBE_OUT) setGlobeMode(true);
@@ -306,14 +318,14 @@ $('globe-btn').addEventListener('click', () => {
 // Each entry switches one model on / off in the scenario. Terrain entries rebuild the terrain; rover
 // entries are sent to the worker and apply immediately. Kept across rebuilds, presets and config files.
 const MODELS = [
-  { key: 'fractal', group: 'terrain', label: 'フラクタル起伏（細かな凹凸・うねり）', get: (s) => s.terrain.fractal.enabled, set: (s, v) => { s.terrain.fractal.enabled = v; } },
-  { key: 'tilt', group: 'terrain', label: '地域の傾斜（一様な斜面）', get: (s) => s.terrain.tilt.enabled !== false, set: (s, v) => { s.terrain.tilt.enabled = v; } },
-  { key: 'craters', group: 'terrain', label: 'クレーター（リム・放出物の盛り上がり込み）', get: (s) => s.terrain.craters.enabled, set: (s, v) => { s.terrain.craters.enabled = v; } },
-  { key: 'rocks', group: 'terrain', label: '岩（散在する岩）', get: (s) => s.terrain.rocks.enabled && s.terrain.rocks.background !== false, set: (s, v) => { s.terrain.rocks.background = v; s.terrain.rocks.enabled = v || s.terrain.rocks.ejecta; } },
-  { key: 'ejecta', group: 'terrain', label: '岩（新しいクレーター周りの放出岩塊）', get: (s) => s.terrain.rocks.enabled && !!s.terrain.rocks.ejecta, set: (s, v) => { s.terrain.rocks.ejecta = v; s.terrain.rocks.enabled = v || s.terrain.rocks.background !== false; } },
-  { key: 'objects', group: 'terrain', label: '物体（円筒などの人工物）', get: (s) => (s.objects || []).some((o) => o.enabled !== false), set: (s, v) => { for (const o of s.objects || []) o.enabled = v; } },
-  { key: 'slip', group: 'rover', label: '斜度に応じた車輪のすべり（登りで遅く、下りで滑る）', get: (s) => s.rover.slipEnabled !== false, set: (s, v) => { s.rover.slipEnabled = v; } },
-  { key: 'lateral', group: 'rover', label: '横傾斜での横流れ', get: (s) => s.rover.lateralEnabled !== false, set: (s, v) => { s.rover.lateralEnabled = v; } },
+  { key: 'fractal', group: 'terrain', label: 'フラクタル起伏（細かな凹凸・うねり）', src: 'RMS 斜度の定義: Rosenburg et al. (2011) JGR 116, E02001。Hurst 指数・RMS 斜度の値はサンプル値', get: (s) => s.terrain.fractal.enabled, set: (s, v) => { s.terrain.fractal.enabled = v; } },
+  { key: 'tilt', group: 'terrain', label: '地域の傾斜（一様な斜面）', src: 'サンプル値（シナリオで指定）', get: (s) => s.terrain.tilt.enabled !== false, set: (s, v) => { s.terrain.tilt.enabled = v; } },
+  { key: 'craters', group: 'terrain', label: 'クレーター（リム・放出物の盛り上がり込み）', src: '平衡密度: Gault (1970) Radio Sci. 5; Xiao & Werner (2015) JGR Planets 120。d/D: Stopar et al. (2017) Icarus; Pike (1977)。劣化 d/D: Basilevsky et al. (2018)。放出物の厚さ: McGetchin et al. (1973) EPSL 20', get: (s) => s.terrain.craters.enabled, set: (s, v) => { s.terrain.craters.enabled = v; } },
+  { key: 'rocks', group: 'terrain', label: '岩（散在する岩）', src: 'サイズ分布: Golombek & Rapp (1997) JGR 102; 月への適用 Li & Wu (2018) JGR Planets 123。被覆率 k・高さ比はサンプル値', get: (s) => s.terrain.rocks.enabled && s.terrain.rocks.background !== false, set: (s, v) => { s.terrain.rocks.background = v; s.terrain.rocks.enabled = v || s.terrain.rocks.ejecta; } },
+  { key: 'ejecta', group: 'terrain', label: '岩（新しいクレーター周りの放出岩塊）', src: 'サンプル値（要確認: Bart & Melosh (2010) Icarus 209）', get: (s) => s.terrain.rocks.enabled && !!s.terrain.rocks.ejecta, set: (s, v) => { s.terrain.rocks.ejecta = v; s.terrain.rocks.enabled = v || s.terrain.rocks.background !== false; } },
+  { key: 'objects', group: 'terrain', label: '物体（円筒などの人工物）', src: 'ユーザー指定の形状（表面は月面と同じ Hapke 反射）', get: (s) => (s.objects || []).some((o) => o.enabled !== false), set: (s, v) => { for (const o of s.objects || []) o.enabled = v; } },
+  { key: 'slip', group: 'rover', label: '斜度に応じた車輪のすべり（登りで遅く、下りで滑る）', src: '定性モデル・サンプル値（テラメカニクスの試験データでの校正は未実施）', get: (s) => s.rover.slipEnabled !== false, set: (s, v) => { s.rover.slipEnabled = v; } },
+  { key: 'lateral', group: 'rover', label: '横傾斜での横流れ', src: '定性モデル・サンプル値', get: (s) => s.rover.lateralEnabled !== false, set: (s, v) => { s.rover.lateralEnabled = v; } },
 ];
 const modelOverrides = {}; // key -> boolean
 function applyModelOverrides(sc) { for (const m of MODELS) if (modelOverrides[m.key] !== undefined) m.set(sc, modelOverrides[m.key]); }
@@ -326,6 +338,9 @@ function setupModelsTab() {
     if (m.key === 'ejecta' && !scenario.terrain.craters.enabled) lab.title = 'クレーターを使わないと放出岩塊もありません';
     lab.querySelector('input').addEventListener('change', (e) => setModel(m, e.target.checked));
     $(`models-${m.group}`).appendChild(lab);
+    const src = document.createElement('div');
+    src.className = 'hint src'; src.textContent = `出典: ${m.src}`;
+    $(`models-${m.group}`).appendChild(src);
   }
 }
 function setModel(m, on) {
@@ -418,9 +433,56 @@ function setupSensorTab(sensors) {
   sensorCfgs = structuredClone(sensors);
   const box = $('mounts');
   box.innerHTML = '';
-  for (const kind of ['lidar', 'camera', 'light']) for (const cfg of sensorCfgs[kind]) box.appendChild(sensorCard(kind, cfg));
+  for (const kind of ['lidar', 'camera', 'light']) {
+    for (const cfg of sensorCfgs[kind]) {
+      const card = sensorCard(kind, cfg);
+      if (kind === 'camera') {
+        const del = document.createElement('button');
+        del.textContent = 'このカメラを削除'; del.className = 'small';
+        del.addEventListener('click', () => removeCamera(cfg.name));
+        card.appendChild(del);
+      }
+      box.appendChild(card);
+    }
+  }
   updateSensorMarkers();
 }
+
+// Cameras added / removed by the user (kept across rebuilds; exported with the config).
+// A new camera starts from the navcam template, 640 x 480, 1 Hz, 90° wide, 20° down, at the chosen side.
+const CAMERA_SIDES = {
+  rear: { label: '後ろ', mount: { x: -0.55, y: 0, z: 1.6, rollDeg: 0, pitchDeg: 20, yawDeg: 180 } },
+  front: { label: '前', mount: { x: 0.5, y: 0, z: 1.6, rollDeg: 0, pitchDeg: 20, yawDeg: 0 } },
+  left: { label: '左', mount: { x: 0, y: 0.45, z: 1.6, rollDeg: 0, pitchDeg: 20, yawDeg: 90 } },
+  right: { label: '右', mount: { x: 0, y: -0.45, z: 1.6, rollDeg: 0, pitchDeg: 20, yawDeg: -90 } },
+};
+const addedCameras = [], removedCameras = new Set();
+function applyCameraList(sc) {
+  sc.cameras = (sc.cameras || []).filter((c) => !removedCameras.has(c.name));
+  for (const c of addedCameras) if (!sc.cameras.some((x) => x.name === c.name)) sc.cameras.push(structuredClone(c));
+}
+function addCamera(side) {
+  const names = new Set((scenario.cameras || []).map((c) => c.name));
+  let k = 2;
+  while (names.has(`${side}${k}`)) k++;
+  const cfg = structuredClone(TEMPLATES.camera);
+  Object.assign(cfg, { name: `${side}${k}`, rateHz: 1, hfovDeg: 90, enabled: true, mount: { ...CAMERA_SIDES[side].mount } });
+  addedCameras.push(cfg); removedCameras.delete(cfg.name);
+  scenario.cameras.push(structuredClone(cfg));
+  worker.postMessage({ type: 'add-camera', cfg });
+}
+function removeCamera(name) {
+  const k = addedCameras.findIndex((c) => c.name === name);
+  if (k >= 0) addedCameras.splice(k, 1); else removedCameras.add(name);
+  delete sensorOverrides[`camera:${name}`];
+  scenario.cameras = scenario.cameras.filter((c) => c.name !== name);
+  const fig = document.querySelector(`#cam-grid figure[data-cam="${name}"]`);
+  if (fig) fig.remove();
+  delete camStats[name];
+  worker.postMessage({ type: 'remove-camera', name });
+}
+for (const [side, v] of Object.entries(CAMERA_SIDES)) $('cam-add-side').add(new Option(v.label, side));
+$('cam-add').addEventListener('click', () => addCamera($('cam-add-side').value));
 function sensorApplied(m) {
   const list = sensorCfgs[m.kind], k = list.findIndex((c) => c.name === m.name);
   if (k >= 0) list[k] = structuredClone(m.cfg);
@@ -472,20 +534,58 @@ function updateSensorMarkers() {
 
 // ------------------------------------------------------------------ camera (GPU-rendered in the worker)
 const camStats = {};
-function camTile(name) { // one tile per camera in the image panel (created on demand, in config order)
+// Each camera image is a floating window: drag its title bar to move it, drag the lower-right corner to
+// resize it; positions are remembered per camera name (localStorage). 「並べ直す」 restores the tiling.
+const WIN_KEY = 'lunarsim.web.camwin.', WIN_W = 320;
+let winZ = 10;
+function loadWin(name) { try { return JSON.parse(localStorage.getItem(WIN_KEY + name)); } catch (e) { return null; } }
+function saveWin(fig) {
+  try { localStorage.setItem(WIN_KEY + fig.dataset.cam, JSON.stringify({ x: fig.offsetLeft, y: fig.offsetTop, w: fig.offsetWidth })); } catch (e) { /* storage blocked */ }
+}
+function defaultWin(k) { // tile from the top-right corner downwards, then leftwards
+  const h = WIN_W * 0.75 + 34, rows = Math.max(1, Math.floor((window.innerHeight - 16) / (h + 6)));
+  return { x: window.innerWidth - 8 - (Math.floor(k / rows) + 1) * (WIN_W + 6), y: 8 + (k % rows) * (h + 6), w: WIN_W };
+}
+function placeWin(fig, p) {
+  const w = Math.min(Math.max(p.w || WIN_W, 160), window.innerWidth - 16);
+  fig.style.width = `${w}px`;
+  fig.style.left = `${Math.min(Math.max(p.x, 0), window.innerWidth - 60)}px`;
+  fig.style.top = `${Math.min(Math.max(p.y, 0), window.innerHeight - 30)}px`;
+}
+function camTile(name) { // one window per camera (created on demand)
   let fig = document.querySelector(`#cam-grid figure[data-cam="${name}"]`);
-  if (!fig) {
-    fig = document.createElement('figure');
-    fig.dataset.cam = name;
-    fig.innerHTML = '<canvas width="640" height="480"></canvas><figcaption></figcaption>';
-    $('cam-grid').appendChild(fig);
-  }
+  if (fig) return fig;
+  fig = document.createElement('figure');
+  fig.className = 'cam-win';
+  fig.dataset.cam = name;
+  fig.innerHTML = `<div class="cam-title"><span>${name}</span><button title="このカメラを止めて閉じる">×</button></div>
+    <canvas width="640" height="480"></canvas><figcaption></figcaption>`;
+  $('cam-grid').appendChild(fig);
+  placeWin(fig, loadWin(name) || defaultWin($('cam-grid').children.length - 1));
+  const bar = fig.querySelector('.cam-title');
+  fig.addEventListener('pointerdown', () => { fig.style.zIndex = ++winZ; });
+  bar.addEventListener('pointerdown', (e) => {
+    if (e.target.tagName === 'BUTTON') return;
+    const dx = e.clientX - fig.offsetLeft, dy = e.clientY - fig.offsetTop;
+    bar.setPointerCapture(e.pointerId);
+    const move = (ev) => placeWin(fig, { x: ev.clientX - dx, y: ev.clientY - dy, w: fig.offsetWidth });
+    const up = () => { bar.removeEventListener('pointermove', move); bar.removeEventListener('pointerup', up); saveWin(fig); };
+    bar.addEventListener('pointermove', move); bar.addEventListener('pointerup', up);
+    e.preventDefault();
+  });
+  new ResizeObserver(() => { if (fig.offsetWidth) saveWin(fig); }).observe(fig);
+  bar.querySelector('button').addEventListener('click', () => {
+    const box = document.querySelector(`#cameras input[data-cam="${name}"]`);
+    if (box) { box.checked = false; box.dispatchEvent(new Event('change')); }
+  });
   return fig;
 }
 function updateCamPanel() {
   const tiles = [...document.querySelectorAll('#cam-grid figure')].filter((f) => !f.hidden && camStats[f.dataset.cam]);
   $('cam-panel').hidden = !$('cam-show').checked || !tiles.length;
-  $('cam-grid').classList.toggle('multi', tiles.length > 1);
+}
+function retileCameraWindows() {
+  [...document.querySelectorAll('#cam-grid figure')].forEach((f, k) => { placeWin(f, defaultWin(k)); saveWin(f); });
 }
 function showCamera(m) {
   const fig = camTile(m.name), cv = fig.querySelector('canvas');
@@ -507,7 +607,7 @@ function setupCameras(m) {
     const lab = document.createElement('label'), fig = camTile(c.name);
     grid.appendChild(fig); // config order
     fig.hidden = !c.enabled;
-    lab.innerHTML = `<input type="checkbox" ${c.enabled ? 'checked' : ''}> ${c.name}（${c.width}×${c.height}, ${c.rateHz} Hz）`;
+    lab.innerHTML = `<input type="checkbox" data-cam="${c.name}" ${c.enabled ? 'checked' : ''}> ${c.name}（${c.width}×${c.height}, ${c.rateHz} Hz）`;
     lab.querySelector('input').addEventListener('change', (e) => {
       worker.postMessage({ type: 'camera', name: c.name, on: e.target.checked });
       fig.hidden = !e.target.checked; updateCamPanel();
@@ -523,6 +623,7 @@ function setupCameras(m) {
   updateCamPanel();
 }
 $('cam-show').addEventListener('change', updateCamPanel);
+$('cam-retile').addEventListener('click', retileCameraWindows);
 
 // ------------------------------------------------------------------ controls
 for (const k of Object.keys(SCENARIOS)) $('preset').add(new Option(k, k));
@@ -545,6 +646,7 @@ function loadConfig(obj, label) {
   customConfig = { obj, base: obj.base || 'south_pole_lowsun', label };
   for (const k of Object.keys(sensorOverrides)) delete sensorOverrides[k]; // the file is the new reference
   for (const k of Object.keys(modelOverrides)) delete modelOverrides[k];
+  addedCameras.length = 0; removedCameras.clear();
   $('seed').value = sc.seed;
   $('site').textContent = `${sc.site.lat}°, ${sc.site.lon}°`;
   setSunUi(sc.sun);
@@ -603,6 +705,7 @@ function build() {
   scenario = customConfig ? resolveConfig(customConfig.obj) : structuredClone(SCENARIOS[$('preset').value]);
   if (SIZES[$('size').value]) Object.assign(scenario.terrain, SIZES[$('size').value]);
   scenario.seed = Math.max(0, Math.floor(+$('seed').value || 0));
+  applyCameraList(scenario);
   applySensorOverrides(scenario);
   applyModelOverrides(scenario);
   const astro = document.querySelector('input[name=sunmode]:checked').value === 'astro';

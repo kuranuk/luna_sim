@@ -110,3 +110,15 @@
 
 - 反射: Hapke (2012); Sato et al. (2014); McEwen (1991)
 - 太陽: Meeus, *Astronomical Algorithms*; 太陽定数 Kopp & Lean (2011)
+
+## ブラウザ版の月全体表示（globe）
+
+| 量 | 採用 | 状態 | 出典 |
+|---|---|---|---|
+| 全球カラー地図 | LROC WAC カラーモザイク（極域を含む）、正距円筒 4096×2048 に縮小 | 実データ（パブリックドメイン） | NASA GSFC Scientific Visualization Studio, "CGI Moon Kit" (https://svs.gsfc.nasa.gov/4720), `lroc_color_poles_16k.tif`（LRO Camera / LROC team） |
+| 全球標高 | LOLA 標高、正距円筒 1024×512、8 bit（全域を引き伸ばし、約 −9.1〜+10.8 km とみなす） | 実データ（パブリックドメイン）、8 bit 量子化 | 同キットの標高地図（LRO LOLA team） |
+| 凹凸の強調 | 3 倍 | **表示用の設定**（物理量ではない） | — |
+| 月の平均半径 | 1737.4 km | 確認 | IAU WGCCRE |
+
+取得経路: 開発環境から SVS に接続できなかったため、vasturiano/globe.gl の例 `example/moon-landing-sites/` にある同一ファイル
+（カラー地図の EXIF に SVS 上のパス `/svs/data/lunar/lroc/albedo/hapke/lroc_color_poles_16k.tif`）から取得（`web/assets/moon/README.md`）。

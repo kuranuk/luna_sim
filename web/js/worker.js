@@ -22,6 +22,9 @@ function attachGpu() {
     handleOutput({ imu: [], lidar: [], camera: world.cameras.filter((c) => c.enabled).map((c) => world.shoot(c)) });
     for (const c of world.cameras) c.next = 1 / c.cfg.rateHz;
   }
+  postCameras();
+}
+function postCameras() {
   post({ type: 'cameras', available: !!gpu, error: gpuError,
     cameras: world.cameras.map((c) => ({ name: c.cfg.name, width: c.K.width, height: c.K.height, rateHz: c.cfg.rateHz, hfovDeg: c.cfg.hfovDeg, enabled: c.enabled })),
     lights: (world.scenario.lights || []).map((l) => l.name) });
@@ -284,6 +287,16 @@ self.onmessage = (ev) => {
     else if (m.type === 'lidar') { const l = world.lidars.find((x) => x.cfg.name === m.name); if (l) l.enabled = m.on; }
     else if (m.type === 'camera') { const c = world.cameras.find((x) => x.cfg.name === m.name); if (c) c.enabled = m.on; }
     else if (m.type === 'lights') world.lightsOn = m.on;
+    else if (m.type === 'add-camera' || m.type === 'remove-camera') {
+      const cam = m.type === 'add-camera' ? world.addCamera(m.cfg) : (world.removeCamera(m.name), null);
+      if (gpu && world.cameras.length && !world.cameraRenderer) { world.cameraRenderer = gpu; gpu.setWorld(world); }
+      if (cam && world.cameraRenderer && cam.enabled) { // first image right away, also while paused
+        handleOutput({ imu: [], lidar: [], camera: [world.shoot(cam)] });
+        cam.next = world.time + 1 / cam.cfg.rateHz;
+      }
+      postCameras();
+      post({ type: 'sensor-list', sensors: { lidar: world.lidars.map((l) => l.cfg), camera: world.cameras.map((c) => c.cfg), light: world.scenario.lights || [] } });
+    }
     else if (m.type === 'rover-model') Object.assign(world.scenario.rover, m.flags); // live: slip / drift on-off
     else if (m.type === 'sensor') {
       const cfg = world.setSensor(m.kind, m.name, m.params);

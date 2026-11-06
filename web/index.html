@@ -108,7 +108,9 @@
     <section>
       <h2>カメラ</h2>
       <div id="cameras"><p class="hint">準備中…</p></div>
-      <label><input id="cam-show" type="checkbox" checked> 画像を表示</label>
+      <div class="row"><label><input id="cam-show" type="checkbox" checked> 画像を表示</label>
+        <button id="cam-retile" class="small" title="画像の窓を右上から並べ直す">並べ直す</button></div>
+      <p class="hint">画像の窓はタイトルをドラッグで移動、右下の角で大きさを変更できます。</p>
       <p class="hint">GPU（WebGL2）で描画: Hapke 反射 + 太陽（影は LiDAR と同じレイキャスト）+ ヘッドライト（影付き）。
         センサ雑音・自動露光は Python 版と同じモデル。表示はガンマ 2.2、データ（PGM・Python への観測）は線形 DN。</p>
     </section>
@@ -129,6 +131,8 @@
         座標は車体 FLU: x 前・y 左・z 上、原点は車体中心（平地で地面から 0.5 m）。角度は ZYX オイラーで
         ピッチ + = 下向き、ヨー + = 左（0 = 前、180 = 後ろ）。3D 表示の車体に各センサの位置と向きを表示します。</p>
       <div id="mounts"></div>
+      <div class="row">カメラを追加: <select id="cam-add-side"></select><button id="cam-add">追加</button></div>
+      <p class="hint">追加したカメラは 640×480・1 Hz・水平 90°・20° 下向きで始まります（上のカードで位置・角度・画角を変更）。</p>
     </div>
     <div data-panel="models" hidden>
       <p class="hint">路面（地形と走行）のモデルを個別に使う / 使わないを選びます。地形の項目は変更すると地形を作り直し、
@@ -143,6 +147,7 @@
     <p class="hint">影は CPU のレイキャストで計算（太陽円盤は点光源扱い）。表示の陰影と弱い環境光は見やすさのための近似です。</p>
   </aside>
   <div id="cam-panel" hidden><div id="cam-grid"></div></div>
+  <div id="credit" hidden></div>
   <div id="busy" hidden>計算中…</div>
   <div id="error"></div>
   <script type="module" src="boot.js"></script>

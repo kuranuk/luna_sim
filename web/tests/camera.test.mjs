@@ -65,3 +65,25 @@ test('World schedules camera frames with an injected renderer and sends them to 
   const c = header.cameras[2];
   assert.deepEqual([...blobs[`camera/${c.name}/${c.frame}/image`]], [...out.camera[2].image.dn]);
 });
+
+test('cameras can be added and removed at run time (e.g. a second rear camera)', () => {
+  const sc = structuredClone(SCENARIOS.mare_plain);
+  sc.terrain.n = 128; sc.lidars = []; sc.cameras = [sc.cameras[0]];
+  const w = new World(sc);
+  w.cameraRenderer = { render: (world, cam) => new Float32Array(cam.K.width * cam.K.height).fill(1) };
+  w.advance(0.6, { scans: 'all' });
+  const cfg = { ...structuredClone(sc.cameras[0]), name: 'rear2', rateHz: 1, width: 32, height: 24, hfovDeg: 90,
+    mount: { x: -0.55, y: 0, z: 1.6, rollDeg: 0, pitchDeg: 20, yawDeg: 180 } };
+  w.addCamera(cfg);
+  assert.throws(() => w.addCamera(cfg), /taken/);
+  const out = w.advance(1.0, { scans: 'all' });
+  const rear = out.camera.filter((f) => f.name === 'rear2');
+  assert.equal(rear.length, 2); // due immediately (t = 0.6 s), then 1 Hz (t = 1.6 s, end inclusive)
+  assert.equal(rear[0].frame, 0);
+  const axis = [rear[0].pose.R[0], rear[0].pose.R[3]]; // camera body +x in the world: backwards (west)
+  assert.ok(axis[0] < -0.9, `axis ${axis}`);
+  assert.deepEqual(w.scenario.cameras.map((c) => c.name), ['navcam', 'rear2']); // in the hello / exported config
+  w.removeCamera('rear2');
+  assert.equal(w.advance(2.0, { scans: 'all' }).camera.filter((f) => f.name === 'rear2').length, 0);
+  assert.throws(() => w.removeCamera('rear2'));
+});
