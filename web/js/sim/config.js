@@ -53,6 +53,12 @@ function check(sc, errors) {
   num(t.n, 'terrain.n', 64, 2048, { int: true });
   if (Number.isInteger(t.n) && (t.n & (t.n - 1))) errors.push(`terrain.n = ${t.n}: 2 のべき乗にしてください（FFT）`);
   num(t.res, 'terrain.res', 0.01, 10);
+  if (t.dem !== undefined && t.dem !== null) {
+    if (typeof t.dem !== 'object' || typeof t.dem.enabled !== 'boolean') errors.push('terrain.dem.enabled は true / false');
+    else if (t.dem.enabled && (typeof t.dem.url !== 'string' || !/^[\w./-]+\.json$/.test(t.dem.url) || t.dem.url.includes('..'))) {
+      errors.push(`terrain.dem.url = ${JSON.stringify(t.dem.url)}: サイト内の相対パス（.json）にしてください`);
+    }
+  }
   num(sc.seed, 'seed', 0, 2 ** 32 - 1, { int: true });
   if (!['manual', 'astronomical'].includes(sc.sun.mode)) errors.push('sun.mode は manual / astronomical');
   if (sc.sun.mode === 'astronomical' && Number.isNaN(Date.parse(sc.sun.utc))) errors.push(`sun.utc = ${JSON.stringify(sc.sun.utc)}: ISO 8601 の日時にしてください`);

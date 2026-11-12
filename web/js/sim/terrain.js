@@ -6,6 +6,7 @@
 // x_j = x0 + j * res, y_i = y0 + i * res, centred on the origin.
 // Parameter defaults and references follow lunarsim/config/schema.py (several are sample values).
 
+import { demHeight, demProblems } from './dem.js';
 import { fft2 } from './fft.js';
 import { rng } from './rng.js';
 
@@ -263,11 +264,20 @@ export function stampRocks(hm, rocks, labels) {
 // --------------------------------------------------------------------------- assembly
 
 /** Build the terrain of a scenario: { z, labels, n, res, x0, y0, extent, craters, rocks }. */
-export function buildTerrain(sc) {
+// With a real DEM (dem.js) as the base: the DEM gives the shape at scales above its grid spacing, so
+// the regional tilt is not used, the fractal relief is limited to wavelengths below DEM_DETAIL_CELLS
+// DEM cells and the synthetic craters to diameters below that (larger ones are already in the DEM).
+export const DEM_DETAIL_CELLS = 4;
+export function buildTerrain(sc, dem = null) {
   const t = sc.terrain, n = t.n, res = t.res;
   const x0 = -0.5 * (n - 1) * res, y0 = x0;
-  const z = fractal(n, res, t.fractal, sc.seed);
-  if (t.tilt.enabled !== false && t.tilt.slopeDeg > 0) {
+  if (dem) { const bad = demProblems(dem, sc); if (bad.length) throw new Error(bad.join(' / ')); }
+  const lim = dem ? DEM_DETAIL_CELLS * dem.res : Infinity;
+  const fp = dem ? { ...t.fractal, rolloffWavelength: Math.min(t.fractal.rolloffWavelength || Infinity, lim) } : t.fractal;
+  const z = fractal(n, res, fp, sc.seed);
+  if (dem) {
+    for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) z[i * n + j] += demHeight(dem, x0 + j * res, y0 + i * res);
+  } else if (t.tilt.enabled !== false && t.tilt.slopeDeg > 0) {
     const az = t.tilt.downhillAzimuthDeg * Math.PI / 180, grade = Math.tan(t.tilt.slopeDeg * Math.PI / 180);
     const gx = Math.sin(az), gy = Math.cos(az);
     for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) z[i * n + j] -= grade * ((x0 + j * res) * gx + (y0 + i * res) * gy);
@@ -275,11 +285,12 @@ export function buildTerrain(sc) {
   const labels = new Uint8Array(n * n);
   const hm = { z, labels, n, res, x0, y0 };
   const extent = [x0, x0 + (n - 1) * res, y0, y0 + (n - 1) * res];
-  const craters = sampleCraters(extent, t.craters, sc.seed);
+  const cp = dem && t.craters.dMax > lim ? { ...t.craters, dMax: Math.max(lim, t.craters.dMin * 1.01) } : t.craters;
+  const craters = sampleCraters(extent, cp, sc.seed);
   stampCraters(hm, craters, t.craters.shape, labels);
   const rocks = sampleRocks(extent, t.rocks, craters, sc.seed);
   stampRocks(hm, rocks, labels);
-  return { ...hm, extent, craters, rocks };
+  return { ...hm, extent, craters, rocks, dem: !!dem };
 }
 
 /** Elevation [m] on the triangulated surface (quads split along (i, j)-(i+1, j+1)). */

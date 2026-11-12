@@ -5,6 +5,7 @@
 // one (Node, no WebGL2) camera frames are skipped.
 
 import { expose, intrinsics } from './camera.js';
+import { demWanted } from './dem.js';
 import { compose, DEG, mountPose, quat } from './frames.js';
 import { Imu } from './imu.js';
 import { renderLidar, scanPattern } from './lidar.js';
@@ -15,10 +16,14 @@ import { sunAstronomical, sunManual } from './sun.js';
 import { buildTerrain, heightAt, nodeNormal } from './terrain.js';
 
 export class World {
-  constructor(scenario) {
+  /** opts.dem: parsed real DEM (dem.js) used as the base terrain when scenario.terrain.dem.enabled.
+   *  Without the data the terrain is fully procedural and `demMissing` is set (callers report it). */
+  constructor(scenario, opts = {}) {
     this.scenario = structuredClone(scenario);
     const t0 = performance.now();
-    this.terrain = buildTerrain(this.scenario);
+    const wantDem = demWanted(this.scenario);
+    this.demMissing = wantDem && !opts.dem;
+    this.terrain = buildTerrain(this.scenario, wantDem ? opts.dem || null : null);
     this.objects = buildObjects(this.scenario, this.terrain);
     this.caster = new SceneCaster(new HeightfieldCaster(this.terrain), this.objects); // terrain + objects
     this.buildMs = performance.now() - t0;

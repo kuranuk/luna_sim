@@ -255,6 +255,7 @@ worker.onmessage = (ev) => {
     setupSensorTab(m.sensors);
     setupModelsTab();
     drawObjects(m.objects);
+    if (m.dem) $('build-info').textContent += `　ベース地形: LOLA 実 DEM（${m.dem.res} m 格子、原点の斜度 ${m.dem.stats.slope_at_site_deg.toFixed(1)}°）`;
     if (m.outsideObjects.length) {
       $('build-info').textContent += `　※ ${m.outsideObjects.join(', ')} は地形の範囲外（下に地面がありません。範囲 512 m で地面の上に立ちます）`;
     }
@@ -352,6 +353,10 @@ $('globe-btn').addEventListener('click', () => {
 // Each entry switches one model on / off in the scenario. Terrain entries rebuild the terrain; rover
 // entries are sent to the worker and apply immediately. Kept across rebuilds, presets and config files.
 const MODELS = [
+  { key: 'dem', group: 'terrain', label: '実 DEM のベース地形（LOLA のレーザ高度計データ、10 m 格子）',
+    src: 'LRO LOLA RDR のレーザ測距点（NASA GSFC LOLA チーム, Smith et al. (2010) Space Sci. Rev. 150）。USGS Astrogeology が AWS Open Data で公開する COPC タイル（s3://astrogeo-ard/moon/lro/lola/）から scripts/fetch_lola_dem.py で格子化。使うと「地域の傾斜」は無効、フラクタル起伏とクレーターは 40 m 未満だけを上乗せ',
+    available: (s) => !!(s.terrain.dem && s.terrain.dem.url), na: 'このプリセットの地点には DEM ファイルを同梱していません（南極プリセットのみ）',
+    get: (s) => !!(s.terrain.dem && s.terrain.dem.enabled && s.terrain.dem.url), set: (s, v) => { if (s.terrain.dem && s.terrain.dem.url) s.terrain.dem.enabled = v; } },
   { key: 'fractal', group: 'terrain', label: 'フラクタル起伏（細かな凹凸・うねり）', src: 'RMS 斜度の定義: Rosenburg et al. (2011) JGR 116, E02001。Hurst 指数・RMS 斜度の値はサンプル値', get: (s) => s.terrain.fractal.enabled, set: (s, v) => { s.terrain.fractal.enabled = v; } },
   { key: 'tilt', group: 'terrain', label: '地域の傾斜（一様な斜面）', src: 'サンプル値（シナリオで指定）', get: (s) => s.terrain.tilt.enabled !== false, set: (s, v) => { s.terrain.tilt.enabled = v; } },
   { key: 'craters', group: 'terrain', label: 'クレーター（リム・放出物の盛り上がり込み）', src: '平衡密度: Gault (1970) Radio Sci. 5; Xiao & Werner (2015) JGR Planets 120。d/D: Stopar et al. (2017) Icarus; Pike (1977)。劣化 d/D: Basilevsky et al. (2018)。放出物の厚さ: McGetchin et al. (1973) EPSL 20', get: (s) => s.terrain.craters.enabled, set: (s, v) => { s.terrain.craters.enabled = v; } },
@@ -368,7 +373,10 @@ function setupModelsTab() {
   for (const g of ['terrain', 'rover']) $(`models-${g}`).innerHTML = '';
   for (const m of MODELS) {
     const lab = document.createElement('label');
-    lab.innerHTML = `<input type="checkbox" data-model="${m.key}" ${m.get(scenario) ? 'checked' : ''}> ${m.label}`;
+    const na = m.available && !m.available(scenario);
+    lab.innerHTML = `<input type="checkbox" data-model="${m.key}" ${m.get(scenario) ? 'checked' : ''} ${na ? 'disabled' : ''}> ${m.label}`;
+    if (na) lab.title = m.na;
+    if (m.key === 'tilt' && MODELS[0].get(scenario)) lab.title = '実 DEM を使っている間は無効です（傾斜は DEM に含まれます）';
     if (m.key === 'ejecta' && !scenario.terrain.craters.enabled) lab.title = 'クレーターを使わないと放出岩塊もありません';
     lab.querySelector('input').addEventListener('change', (e) => setModel(m, e.target.checked));
     $(`models-${m.group}`).appendChild(lab);
@@ -390,7 +398,7 @@ function setModel(m, on) {
 $('models-all').addEventListener('click', () => {
   let terrain = false;
   for (const m of MODELS) {
-    if (m.get(scenario)) continue;
+    if (m.get(scenario) || (m.available && !m.available(scenario))) continue;
     modelOverrides[m.key] = true; m.set(scenario, true);
     if (m.group === 'terrain') terrain = true;
   }

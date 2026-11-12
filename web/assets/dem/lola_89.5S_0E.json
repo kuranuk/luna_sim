@@ -1,0 +1,31 @@
+{
+ "format": "lunarsim-dem/1",
+ "site": {
+  "lat": -89.5,
+  "lon": 0.0
+ },
+ "n": 129,
+ "res": 10.0,
+ "x0": -640.0,
+ "y0": -640.0,
+ "data": "lola_89.5S_0E.f32",
+ "height_of_site_above_reference_sphere_m": -722.5556405777943,
+ "reference_radius_m": 1737400.0,
+ "frame": "local ENU at the site; rows south to north, columns west to east; heights relative to the site (curvature of the Moon included)",
+ "source": "LRO LOLA RDR laser shots (NASA GSFC, LOLA team), USGS Astrogeology analysis-ready COPC tiles on AWS Open Data: s3://astrogeo-ard/moon/lro/lola/",
+ "tiles": [
+  "LolaRDR_-90N-75N_0E15E",
+  "LolaRDR_-90N-75N_345E360E"
+ ],
+ "processing": "Delaunay linear interpolation of the shots + Gaussian smoothing (1 cell)",
+ "created": "2026-11-12",
+ "stats": {
+  "shots": 6949,
+  "mean_shot_spacing_m": 15.354964397381096,
+  "rms_residual_m": 0.7404148166299368,
+  "slope_at_site_deg": 8.009362407681117,
+  "slope_median_deg": 6.3254450327710865,
+  "slope_max_deg": 15.844871737161963,
+  "downhill_azimuth_at_site_deg": 267.1678081679878
+ }
+}

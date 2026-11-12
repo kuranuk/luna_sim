@@ -10,6 +10,7 @@ import { parseArgs } from 'node:util';
 import { helloMessage, observationMessage, truthPose } from '../js/gnc/protocol.js';
 import { SCENARIOS, SIZES } from '../js/sim/scenarios.js';
 import { World } from '../js/sim/world.js';
+import { loadDem } from './load_dem.mjs';
 
 const { values: o } = parseArgs({ options: {
   url: { type: 'string', default: 'ws://127.0.0.1:8765/' }, preset: { type: 'string', default: 'mare_plain' },
@@ -28,7 +29,7 @@ if (o['no-lidar']) sc.lidars = [];
 const waypoints = o.waypoints ? o.waypoints.split(';').map((p) => p.split(',').map(Number)) : [];
 const period = +o.period, steps = Math.round(+o.seconds / period);
 
-const world = new World(sc);
+const world = new World(sc, { dem: loadDem(sc) });
 const ws = new WebSocket(o.url);
 ws.binaryType = 'arraybuffer';
 const inbox = [];

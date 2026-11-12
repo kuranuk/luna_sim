@@ -129,3 +129,13 @@
 |---|---|---|---|
 | 1 パルスのエネルギー（標準シナリオ・ブラウザ版） | 0.5 mJ × 1000 パルス / フレーム | **サンプル値**（100 m・太陽高度 75° の平地でも全画素が検出される値として選定。1 µJ では日なたで約 20 m まで） | TODO(ref): 実機の値 |
 | レンジウォーク | センサ側で補正済みとして扱う（既定） | モデル上の仮定 | — |
+
+## ブラウザ版の実 DEM ベース地形
+
+| 量 | 採用 | 状態 | 出典 |
+|---|---|---|---|
+| ベース地形（南緯 89.5°、経度 0°、±640 m、10 m 格子） | LOLA RDR の測距点 6949 点を局所 ENU に投影 → Delaunay 線形補間 → ガウス平滑（1 セル）。残差 RMS 0.74 m | 実データ（パブリックドメイン） | Smith et al. (2010) "The Lunar Orbiter Laser Altimeter Investigation on the LRO Mission", Space Sci. Rev. 150, 209–241。データ: USGS Astrogeology Analysis Ready Data（AWS Open Data, `s3://astrogeo-ard/moon/lro/lola/LolaRDR_*.copc.laz`） |
+| 基準球 | 半径 1737.4 km（タイルの座標系: 月固定直交座標） | 確認済み | IAU 2015（Archinal et al. 2018, Celest. Mech. Dyn. Astron. 130:22） |
+| DEM に重ねる細部の上限 | 波長・クレーター直径とも DEM 格子の 4 倍（40 m）未満 | **サンプル値**（測距点間隔 約 15 m より細かい形は実測に無いため） | TODO(ref): LOLA の実効分解能に基づく値 |
+
+限界: 測距点は軌道に沿った筋状で、筋の間は補間。同梱範囲の外の地形（遠くの山による影）は含まない。

@@ -7,6 +7,7 @@
 // command. Sim time advances at most at the real-time x speed rate, slower if Python is slower.
 
 import { helloMessage, observationMessage, truthPose } from './gnc/protocol.js';
+import { demWanted, parseDem } from './sim/dem.js';
 import { World } from './sim/world.js';
 
 // GPU camera renderer (WebGL2 on OffscreenCanvas); cameras are skipped where unavailable.
@@ -278,16 +279,41 @@ function exportData(what, name) {
   throw new Error(`unknown export ${what}`);
 }
 
-self.onmessage = (ev) => {
-  const m = ev.data;
+// Real-DEM base terrain: fetched once per URL (same origin, relative to the site root) and kept.
+const demCache = new Map();
+async function fetchDem(sc) {
+  if (!demWanted(sc)) return null;
+  const url = new URL(sc.terrain.dem.url, new URL('../', self.location.href));
+  if (url.origin !== self.location.origin) throw new Error(`DEM は同じサイト内のファイルだけ読み込めます: ${sc.terrain.dem.url}`);
+  if (!demCache.has(url.href)) {
+    const r = await fetch(url);
+    if (!r.ok) throw new Error(`DEM を読み込めません（${r.status}）: ${sc.terrain.dem.url}`);
+    const meta = await r.json();
+    if (typeof meta.data !== 'string' || !/^[\w.-]+$/.test(meta.data)) throw new Error('DEM: "data" はファイル名で指定してください');
+    const rb = await fetch(new URL(meta.data, url));
+    if (!rb.ok) throw new Error(`DEM のデータを読み込めません（${rb.status}）: ${meta.data}`);
+    demCache.set(url.href, parseDem(meta, await rb.arrayBuffer()));
+  }
+  return demCache.get(url.href);
+}
+
+let buildSeq = 0, queue = Promise.resolve();
+self.onmessage = (ev) => { // strictly in order: a build may wait for the DEM download
+  queue = queue.then(() => handle(ev.data)).catch((e) => post({ type: 'error', message: String(e && e.stack || e) }));
+};
+
+async function handle(m) {
   try {
     if (m.type === 'build') {
       running = false;
-      world = new World(m.scenario);
+      const seq = ++buildSeq, dem = await fetchDem(m.scenario);
+      if (seq !== buildSeq) return;
+      world = new World(m.scenario, { dem });
       if (gpu && world.cameras.length) { world.cameraRenderer = gpu; gpu.setWorld(world); }
       log.traj = []; log.imu = world.imuSamples ? world.imuSamples.slice() : []; log.lastScan = {};
       const tp = terrainPayload(world);
       post({ type: 'built', terrain: tp, buildMs: world.buildMs, lidars: world.lidars.map((l) => ({ name: l.cfg.name, beams: l.pattern.n, rateHz: l.cfg.rateHz, cfg: l.cfg })),
+        dem: dem ? { site: dem.site, res: dem.res, n: dem.n, stats: dem.stats } : null,
         objects: world.objects, outsideObjects: world.objects.filter((o) => o.outside).map((o) => o.name),
         sensors: { lidar: world.lidars.map((l) => l.cfg), camera: world.cameras.map((c) => c.cfg), light: world.scenario.lights || [] },
         state: world.state() }, [tp.z.buffer, tp.labels.buffer]);

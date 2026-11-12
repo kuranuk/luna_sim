@@ -231,6 +231,11 @@ fractal (`terrain/fractal`) → tilt → craters (`terrain/craters/{count,size,p
   既定で補正（`walkCorrection` / Python `range_walk_correction`、スキーマ既定は False、south_pole_lowsun*.yaml は true + 5e-4 J）。
   出力に距離画像 `range` と真値 `rangeTrue`（GNC には送らない）。地形モデルの検証は `web/tools/dump_terrain_model.mjs` +
   `tests/test_web_sim.py`（クレーター断面・個数・d/D・岩の被覆率・起伏を Python / 文献値と比較）。
+- 実 DEM のベース地形（2026-11 ユーザー依頼「AWS の LOLA から」）: `scripts/fetch_lola_dem.py`（開発時だけ、`laspy[lazrs]` + `requests` は
+  lock に入れない）が LOLA の測距点を 10 m 格子にして `web/assets/dem/<name>.{json,f32}` に書く。`sim/dem.js`（`parseDem` / `demHeight` =
+  Catmull-Rom 双 3 次 / `demProblems`）。`buildTerrain(sc, dem)`: DEM があれば tilt を使わず、フラクタルの roll-off とクレーター dMax を
+  DEM 格子の 4 倍（40 m）に制限。データは scenario に入れず `new World(sc, { dem })` で渡す（worker が同一オリジンから fetch、Node は
+  `web/tools/load_dem.mjs`）。データ無しで作ると手続き生成になり `world.demMissing = true`（既存テストはこの経路）。南極プリセットだけ既定オン。
 - 画角: `World.setFov(kind, name, params)`（パターン / 内部行列を作り直す、値はクランプ）。UI の変更は `sensorOverrides` で
   再生成後も保持。LiDAR の検証は `web/tests/ref_raycast.mjs`（独立参照実装）と `web/tools/dump_rays.mjs`（Python 比較）。
 - `World.advance(dt, {scans})`: `'all'` = 予定時刻のスキャンを全部（決定的、閉ループ用）、`'latest'` = 実時間用
