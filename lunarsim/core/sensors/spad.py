@@ -196,7 +196,8 @@ def spad_measure(
     var_sig = sd_fp**2 + s.bin_width_s**2 / 12.0
     with np.errstate(invalid="ignore", divide="ignore"):
         var_t = (u_sig * var_sig + u_bg * w_t**2 / 12.0) / np.maximum(k_tot, 1) ** 2
-    t_hat = t0 + shift + np.sqrt(var_t) * g_t
+    walk = np.zeros(p) if s.range_walk_correction else shift
+    t_hat = t0 + walk + np.sqrt(var_t) * g_t
     r_meas = np.where(detected, 0.5 * C_LIGHT * t_hat, np.nan)
     sigma_r = np.where(detected, 0.5 * C_LIGHT * np.sqrt(var_t), np.nan)
 
@@ -218,5 +219,5 @@ def spad_measure(
         bg_rate_hz=phi,
         threshold=T.astype(np.int64),
         sigma_range_m=sigma_r,
-        bias_range_m=0.5 * C_LIGHT * shift,
+        bias_range_m=0.5 * C_LIGHT * walk,
     )

@@ -50,3 +50,4 @@ details summary { cursor: pointer; color: var(--muted); margin: 4px 0; }
 .mount-grid label { font-size: 11px; color: var(--muted); margin: 0; white-space: nowrap; }
 .mount-grid input, .sensor-card input[data-fov] { width: 100%; max-width: 76px; display: block; }
 .sensor-card input[data-fov] { display: inline-block; width: 58px; }
+label.sub { margin-left: 22px; font-size: 12px; }

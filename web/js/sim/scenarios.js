@@ -26,7 +26,9 @@ const LIDARS = [
     // (user setting 2026-10). Mount z is in the body frame (FLU); pitch > 0 = looking down.
     mount: { x: 0.55, y: 0, z: 3.2, rollDeg: 0, pitchDeg: 22, yawDeg: 0 },
     rangeMin: 0.3, rangeMax: 100, reflectance: 0.3,
-    spad: { wavelength: 905e-9, pulseEnergy: 1e-6, txTransmission: 0.9, rxAperture: 0.01, rxTransmission: 0.8,
+    // pulseEnergy: sample value chosen so that every surface within rangeMax returns a range also in full
+    // sunlight (complete range image); with 1e-6 J returns beyond ~20 m are lost on sunlit ground.
+    spad: { wavelength: 905e-9, pulseEnergy: 5e-4, walkCorrection: true, txTransmission: 0.9, rxAperture: 0.01, rxTransmission: 0.8,
       pde: 0.2, filterNm: 1.0, solarSpectral: 1.0, dcr: 1000, pulseFwhm: 1e-9, jitter: 1e-10, binWidth: 2.5e-10,
       pulses: 1000, pfa: 1e-3, deadTime: 10e-9 },
   },

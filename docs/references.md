@@ -122,3 +122,10 @@
 
 取得経路: 開発環境から SVS に接続できなかったため、vasturiano/globe.gl の例 `example/moon-landing-sites/` にある同一ファイル
 （カラー地図の EXIF に SVS 上のパス `/svs/data/lunar/lroc/albedo/hapke/lroc_color_poles_16k.tif`）から取得（`web/assets/moon/README.md`）。
+
+## SPAD LiDAR の送信エネルギー（2026-11）
+
+| 量 | 採用 | 状態 | 出典 |
+|---|---|---|---|
+| 1 パルスのエネルギー（標準シナリオ・ブラウザ版） | 0.5 mJ × 1000 パルス / フレーム | **サンプル値**（100 m・太陽高度 75° の平地でも全画素が検出される値として選定。1 µJ では日なたで約 20 m まで） | TODO(ref): 実機の値 |
+| レンジウォーク | センサ側で補正済みとして扱う（既定） | モデル上の仮定 | — |

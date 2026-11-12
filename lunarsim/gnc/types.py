@@ -150,6 +150,9 @@ class LidarScan:
     beam: npt.NDArray[Any] = field(default_factory=lambda: np.zeros(0, dtype=np.uint32))
     pattern: dict[str, Any] = field(default_factory=dict)
     mount: Mount | None = None  # mount at that frame (it can be changed in the browser)
+    # Flash LiDAR: the range image (height, width) float32 [m], row 0 = top, NaN = no return
+    # (sky / beyond the range gate); the same measurements as ``points`` (range * beam direction).
+    range_image: npt.NDArray[Any] | None = None
 
 
 @dataclass

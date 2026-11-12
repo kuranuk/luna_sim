@@ -223,6 +223,7 @@ def test_session_passes_lidar_beam_and_pattern() -> None:
         p + "points": np.zeros((2, 4), np.float32), p + "labels": np.zeros(2, np.uint8),
         p + "time": np.zeros(2, np.float32), p + "ring": np.array([0, 119], np.uint16),
         p + "beam": np.array([5, 19199], np.uint32),
+        p + "range": np.full((120, 160), np.nan, np.float32),
     }  # fmt: skip
     obs = {"type": "obs", "seq": 1, "t": 1.5, "dt": 0.1, "lidar": [scan]}
     assert s.handle_binary(encode(obs, blobs))["type"] == "cmd"
@@ -231,3 +232,4 @@ def test_session_passes_lidar_beam_and_pattern() -> None:
     np.testing.assert_array_equal(sc.beam, [5, 19199])
     assert sc.mount is not None and sc.mount.xyz == (0.55, 0.0, 3.2)
     assert sc.mount.rpy_deg == (0.0, 22.0, 0.0)
+    assert sc.range_image is not None and sc.range_image.shape == (120, 160)

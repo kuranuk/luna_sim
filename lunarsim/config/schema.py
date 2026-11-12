@@ -650,6 +650,9 @@ class LidarSpadConfig(_Model):
     # armed probability 1 / (1 + Φ τ_d)); "first_photon": at most one detection per
     # laser cycle (dead time >= laser period), background pile-up exp(-Φ t).
     detection_mode: Literal["multi_event", "first_photon"] = "multi_event"
+    # True: the sensor subtracts the calibrated first-photon range walk (pile-up shift towards the
+    # sensor at high signal) for the measured intensity; False: the walk stays in the range.
+    range_walk_correction: bool = False
     dead_time_s: PositiveFloat = 10e-9
 
 

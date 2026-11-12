@@ -311,3 +311,24 @@ def test_flash_azel_rows_are_cones_about_the_body_vertical() -> None:
     assert pat.solid_angle is not None
     band = math.sin(math.radians(22.5 - 22.0)) - math.sin(math.radians(-22.5 - 22.0))
     assert pat.solid_angle.sum() == pytest.approx(math.radians(60.0) * band, rel=1e-12)
+
+
+def test_spad_range_walk_correction() -> None:
+    """High signal: the first-photon walk shifts ranges towards the sensor unless corrected."""
+    from lunarsim.config.schema import LidarNoiseConfig
+    from lunarsim.core.sensors.spad import spad_measure
+
+    n = 4000
+    r = np.full(n, 6.0)
+    has = np.ones(n, dtype=bool)
+    n_s = np.full(n, 50.0)
+    phi = np.full(n, 1000.0)
+    out = {}
+    for corr in (False, True):
+        s = LidarSpadConfig(range_walk_correction=corr)
+        res = spad_measure(r, has, n_s, phi, s, LidarNoiseConfig(), RngFactory(1).generator("t"))
+        assert res.detected.all()
+        out[corr] = float(np.mean(res.range_m - 6.0))
+        np.testing.assert_allclose(res.bias_range_m, 0.0 if corr else res.bias_range_m)
+    assert out[False] < -0.05  # walk towards the sensor
+    assert abs(out[True]) < 2e-3

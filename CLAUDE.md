@@ -224,6 +224,13 @@ fractal (`terrain/fractal`) → tilt → craters (`terrain/craters/{count,size,p
 - 路面モデルタブ（2026-11 ユーザー依頼）: `main.js` の `MODELS`（scenario のフラグ: terrain.fractal/tilt/craters.enabled、
   rocks.background / ejecta、objects[].enabled、rover.slipEnabled / lateralEnabled）。地形は再生成（400 ms まとめ）、走行は worker の
   `rover-model` で即時。`modelOverrides` で再生成・プリセット変更に保持（設定ファイル読み込みで解除）。テスト `web/tests/models.test.mjs`。
+- LiDAR の再検証（2026-11 ユーザー指摘「距離画像は抜け目なく出力されるはず」）: JS の SPAD は Python と同じ窓方式に移植
+  （`spadSetup` / `spadPixel` / `poissonThreshold`、統計量は Python と一致、`web/tests/spad.test.mjs`）。以前の簡略版はピーク 1 ビン分
+  （約 24 %）しか信号を数えていなかった。稜線でなめらかな法線が裏向きになる画素は当たった三角形の法線（`facetNormalAt`）を使う
+  （以前は cos = 0 で必ず抜けた）。`pulseEnergy` 既定を 1e-6 → 5e-4 J（サンプル値、100 m・日なたでも抜けなし）、レンジウォークは
+  既定で補正（`walkCorrection` / Python `range_walk_correction`、スキーマ既定は False、south_pole_lowsun*.yaml は true + 5e-4 J）。
+  出力に距離画像 `range` と真値 `rangeTrue`（GNC には送らない）。地形モデルの検証は `web/tools/dump_terrain_model.mjs` +
+  `tests/test_web_sim.py`（クレーター断面・個数・d/D・岩の被覆率・起伏を Python / 文献値と比較）。
 - 画角: `World.setFov(kind, name, params)`（パターン / 内部行列を作り直す、値はクランプ）。UI の変更は `sensorOverrides` で
   再生成後も保持。LiDAR の検証は `web/tests/ref_raycast.mjs`（独立参照実装）と `web/tools/dump_rays.mjs`（Python 比較）。
 - `World.advance(dt, {scans})`: `'all'` = 予定時刻のスキャンを全部（決定的、閉ループ用）、`'latest'` = 実時間用

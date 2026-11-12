@@ -42,6 +42,7 @@ def observation_from_message(header: dict[str, Any], blobs: Blobs) -> Observatio
                 beam=blobs.get(p + "beam", np.zeros(0, dtype=np.uint32)),
                 pattern=dict(s.get("pattern", {})),
                 mount=Mount.from_dict(s["mount"]) if s.get("mount") else None,
+                range_image=blobs.get(p + "range"),
             )
         )
     cams = [

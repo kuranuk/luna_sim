@@ -64,6 +64,7 @@ export function observationMessage(world, out, seq, dt, waypoints) {
     blobs.push({ name: p + 'points', data: f.scan.points, shape: [c, 4] }, { name: p + 'labels', data: f.scan.labels, shape: [c] },
       { name: p + 'time', data: f.scan.time, shape: [c] }, { name: p + 'ring', data: f.scan.ring, shape: [c] },
       { name: p + 'beam', data: f.scan.beam, shape: [c] });
+    if (lc.kind === 'flash') blobs.push({ name: p + 'range', data: f.scan.range, shape: [lc.height, lc.width] }); // range image
   }
   const cameras = [];
   for (const f of out.camera || []) {

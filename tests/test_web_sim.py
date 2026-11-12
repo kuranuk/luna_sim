@@ -63,3 +63,79 @@ def test_web_lidar_raycast_matches_python(tmp_path: Path, backend: str) -> None:
     hit = np.isfinite(js)
     assert hit.sum() > 0.3 * len(js)
     np.testing.assert_allclose(t[hit], js[hit], rtol=0, atol=1e-9)
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="Node.js not installed")
+def test_web_terrain_model_matches_python_and_references() -> None:
+    """Browser terrain model: crater profiles / populations, rocks, fractal vs Python and theory."""
+    import json
+    import math
+
+    import numpy as np
+
+    from lunarsim.config.schema import CraterSFDConfig, CraterShapeConfig
+    from lunarsim.core.terrain.craters import _profile_for, expected_count, sfd_cdf
+    from lunarsim.core.terrain.rocks import _number_table, cumulative_area_fraction
+
+    tool = ROOT / "web" / "tools" / "dump_terrain_model.mjs"
+    r = subprocess.run(["node", str(tool)], capture_output=True, text=True, timeout=600)
+    assert r.returncode == 0, r.stderr
+    d = json.loads(r.stdout)
+
+    # crater radial profiles (in crater radii) for fresh .. fully degraded craters
+    shape = CraterShapeConfig()
+    assert d["shape"]["depthFresh"] == shape.depth_ratio_fresh
+    assert d["shape"]["rimFresh"] == shape.rim_ratio_fresh
+    for g, row in d["profiles"].items():
+        rho, prof = _profile_for(shape, float(g))
+        np.testing.assert_allclose(row, np.interp(d["rhos"], rho, prof), atol=1e-3)
+
+    # crater population: Poisson count around the equilibrium density, truncated power law D^-2
+    cp = d["craterParams"]
+    sfd = CraterSFDConfig(
+        mode="equilibrium", equilibrium_fraction=cp["fraction"], d_min_m=cp["dMin"],
+        d_max_m=cp["dMax"],
+    )  # fmt: skip
+    expected = expected_count(sfd, d["craterArea"])
+    counts = np.array(d["craterCounts"])
+    assert abs(counts.mean() - expected) < 4 * math.sqrt(expected / len(counts))
+    for q, dq in d["craterDiameterQuantiles"]:
+        assert float(sfd_cdf(dq, sfd)) == pytest.approx(q, abs=2e-3)
+    assert d["craterMeanG"] == pytest.approx(0.5, abs=5e-3)  # Beta(1, 1)
+
+    # stamped craters on a fine grid: depth / diameter, rim height, rim-crest radius, ejecta decay
+    fresh, old = d["stamped"]
+    assert fresh["depthOverD"] == pytest.approx(0.15, abs=2e-3)  # Stopar et al. (2017)
+    assert fresh["rimOverD"] == pytest.approx(0.036, abs=1e-3)  # Pike (1977)
+    assert fresh["crestRadiusOverR"] == pytest.approx(1.0, abs=0.01)
+    tail = 4.0**-3  # (r/R)^-3 tapered to 0 at 4 R (McGetchin et al. 1973)
+    expect = [(q**-3 - tail) / (1 - tail) for q in (1.5, 2, 3)]
+    np.testing.assert_allclose(fresh["ejecta"], expect, atol=5e-3)
+    assert old["depthOverD"] == pytest.approx(0.05, abs=2e-3)  # Basilevsky et al. (2018)
+    assert old["rimOverD"] < fresh["rimOverD"] / 3
+
+    # rocks: Golombek & Rapp (1997) cumulative area fraction F_k(D) = k exp(-q D)
+    rp = d["rockParams"]
+    _, cum = _number_table(rp["k"], rp["dMin"], rp["dMax"])
+    n_exp = cum[-1] * d["rockArea"]
+    rc = np.array(d["rockCounts"])
+    assert abs(rc.mean() - n_exp) < 4 * math.sqrt(n_exp / len(rc))
+
+    def f_above(dd: float) -> float:
+        k = rp["k"]
+        return float(cumulative_area_fraction(dd, k) - cumulative_area_fraction(rp["dMax"], k))
+
+    assert d["rockCircleAreaFraction"] == pytest.approx(f_above(rp["dMin"]), rel=0.02)
+    for dd, frac in d["rockAreaFractionAbove"][:3]:
+        assert frac == pytest.approx(f_above(dd), rel=0.12)
+    st = d["rockStamp"]
+    assert st["area"] == pytest.approx(st["expectedArea"], rel=0.01)  # ellipse a x b
+    assert st["top"] == pytest.approx(0.6, abs=1e-3)  # height ratio 0.5 x 1.2 m
+
+    # fractal: RMS slope at the baseline is exact; structure function ~ L^H
+    fr = d["fractal"]
+    assert fr["measuredSlopeDeg"] == pytest.approx(fr["rmsSlopeDeg"], abs=1e-9)
+    assert 0.7 < fr["measuredHurst"] < fr["hurst"] + 0.05  # estimator is biased low near H = 1
+    assert abs(fr["mean"]) < 1e-9
+    assert d["tilt"]["measuredDeg"] == pytest.approx(d["tilt"]["slopeDeg"], abs=1e-9)
+    assert abs(d["tilt"]["across"]) < 1e-9

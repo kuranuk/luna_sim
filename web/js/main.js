@@ -119,6 +119,30 @@ function updateCloud(msg) {
   pts.geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
   pts.geometry.computeBoundingSphere();
   lidarStats[msg.name] = msg;
+  if (msg.image) showRangeImage(msg);
+}
+
+// Range image of a flash LiDAR (one value per pixel, NaN = no return) in a floating window.
+const TURBO = [[48, 18, 59], [70, 107, 227], [40, 187, 236], [50, 242, 152], [164, 252, 60], [238, 207, 58], [251, 126, 33], [209, 57, 5], [122, 4, 3]];
+function showRangeImage(msg) {
+  const im = msg.image, name = `${msg.name} 距離画像`, fig = camTile(name), cv = fig.querySelector('canvas');
+  if (cv.width !== im.width || cv.height !== im.height) { cv.width = im.width; cv.height = im.height; }
+  const img = new ImageData(im.width, im.height), lmax = Math.log(im.rangeMax), lmin = Math.log(1);
+  for (let k = 0, p = 0; k < im.range.length; k++, p += 4) {
+    const r = im.range[k];
+    img.data[p + 3] = 255;
+    if (Number.isNaN(r)) continue; // black: no return
+    const u = Math.min(Math.max((Math.log(Math.max(r, 1)) - lmin) / (lmax - lmin), 0), 1) * (TURBO.length - 1); // log scale 1 m .. rangeMax
+    const i = Math.min(Math.floor(u), TURBO.length - 2), f = u - i;
+    for (let c = 0; c < 3; c++) img.data[p + c] = TURBO[i][c] + f * (TURBO[i + 1][c] - TURBO[i][c]);
+  }
+  cv.getContext('2d').putImageData(img, 0, 0);
+  camStats[name] = { range: true };
+  fig.hidden = fig.dataset.closed === '1' || !(document.querySelector(`#lidars input[data-range="${msg.name}"]`) || { checked: true }).checked;
+  const miss = im.hits - im.returned;
+  fig.querySelector('figcaption').textContent = `#${msg.frame}  ${im.width}×${im.height}  地表に当たる ${im.hits} 画素中 ${im.returned} で距離あり（抜け ${miss}）`
+    + `  誤検出 ${im.falseAlarms}  黒 = 返りなし（空・距離外）`;
+  updateCamPanel();
 }
 
 function updateTrail(trail) {
@@ -217,6 +241,16 @@ worker.onmessage = (ev) => {
         if (clouds[l.name]) clouds[l.name].visible = e.target.checked;
       });
       $('lidars').appendChild(lab);
+      if (l.cfg.kind === 'flash') {
+        const rl = document.createElement('label');
+        rl.className = 'sub';
+        rl.innerHTML = `<input type="checkbox" data-range="${l.name}" checked> 距離画像を表示`;
+        rl.querySelector('input').addEventListener('change', (e) => {
+          const fig = document.querySelector(`#cam-grid figure[data-cam="${l.name} 距離画像"]`);
+          if (fig) { fig.dataset.closed = e.target.checked ? '' : '1'; fig.hidden = !e.target.checked; updateCamPanel(); }
+        });
+        $('lidars').appendChild(rl);
+      }
     }
     setupSensorTab(m.sensors);
     setupModelsTab();
@@ -575,7 +609,8 @@ function camTile(name) { // one window per camera (created on demand)
   });
   new ResizeObserver(() => { if (fig.offsetWidth) saveWin(fig); }).observe(fig);
   bar.querySelector('button').addEventListener('click', () => {
-    const box = document.querySelector(`#cameras input[data-cam="${name}"]`);
+    const lidar = name.endsWith(' 距離画像') ? name.slice(0, -5) : null;
+    const box = lidar ? document.querySelector(`#lidars input[data-range="${lidar}"]`) : document.querySelector(`#cameras input[data-cam="${name}"]`);
     if (box) { box.checked = false; box.dispatchEvent(new Event('change')); }
   });
   return fig;
@@ -602,7 +637,7 @@ function setupCameras(m) {
   box.innerHTML = '';
   if (!m.available) { box.innerHTML = `<p class="hint">カメラは無効: ${m.error || 'GPU なし'}</p>`; return; }
   const grid = $('cam-grid'), names = new Set(m.cameras.map((c) => c.name));
-  for (const f of [...grid.children]) if (!names.has(f.dataset.cam)) f.remove(); // keep tiles already drawn
+  for (const f of [...grid.children]) if (!names.has(f.dataset.cam) && !f.dataset.cam.endsWith(' 距離画像')) f.remove(); // keep tiles already drawn
   for (const c of m.cameras) {
     const lab = document.createElement('label'), fig = camTile(c.name);
     grid.appendChild(fig); // config order
@@ -822,7 +857,8 @@ for (const b of document.querySelectorAll('[data-export]')) {
       }
       return;
     }
-    if (what === 'pgm') { for (const name of Object.keys(camStats)) worker.postMessage({ type: 'export', what, name }); return; }
+    if (what === 'pgm') { for (const name of Object.keys(camStats)) if (!camStats[name].range) worker.postMessage({ type: 'export', what, name }); return; }
+    if (what === 'range') { for (const l of Object.values(lidarStats)) if (l.image) worker.postMessage({ type: 'export', what, name: l.name }); return; }
     const name = what === 'ply' ? (Object.keys(lidarStats)[0] || 'spad_flash') : undefined;
     worker.postMessage({ type: 'export', what, name });
   });

@@ -74,8 +74,20 @@ function handleOutput(out) {
     lastLidarPost[f.name] = now;
     const world3 = f.scan.world.slice(), inten = new Float32Array(f.scan.count), lab = f.scan.labels.slice();
     for (let k = 0; k < f.scan.count; k++) inten[k] = f.scan.points[4 * k + 3];
+    const lc = (world.lidars.find((l) => l.cfg.name === f.name) || {}).cfg || {}, transfer = [world3.buffer, inten.buffer, lab.buffer];
+    let image = null;
+    if (lc.kind === 'flash') { // range image (row-major, NaN = no return) + completeness against the geometric hits
+      const range = f.scan.range.slice();
+      let hits = 0, returned = 0, falseAlarms = 0;
+      for (let b = 0; b < range.length; b++) {
+        const hit = !Number.isNaN(f.scan.rangeTrue[b]), got = !Number.isNaN(range[b]);
+        if (hit) { hits++; if (got) returned++; } else if (got) falseAlarms++;
+      }
+      image = { range, width: lc.width, height: lc.height, rangeMax: lc.rangeMax, hits, returned, falseAlarms };
+      transfer.push(range.buffer);
+    }
     post({ type: 'lidar', name: f.name, frame: f.frame, time: f.time, count: f.scan.count, beams: f.scan.beams,
-      world: world3, intensity: inten, labels: lab, ms: f.ms }, [world3.buffer, inten.buffer, lab.buffer]);
+      world: world3, intensity: inten, labels: lab, ms: f.ms, image }, transfer);
   }
 }
 
@@ -241,6 +253,17 @@ function exportData(what, name) {
     new Uint8Array(buf).set(head);
     for (let k = 0; k < dn.length; k++) dv.setUint16(head.length + 2 * k, dn[k], false); // PGM is big-endian
     return { filename: `${name}_${String(f.frame).padStart(6, '0')}.pgm`, mime: 'image/x-portable-graymap', data: buf };
+  }
+  if (what === 'range') { // last range image of flash LiDAR `name`: .npy float32 (rows x cols) [m], NaN = no return
+    const f = log.lastScan[name], lc = (world.lidars.find((l) => l.cfg.name === name) || {}).cfg;
+    if (!f || !lc || lc.kind !== 'flash') throw new Error(`no flash range image of ${name} yet`);
+    const header = `{'descr': '<f4', 'fortran_order': False, 'shape': (${lc.height}, ${lc.width}), }`;
+    const pad = 64 - ((10 + header.length + 1) % 64), hdr = header + ' '.repeat(pad % 64) + '\n';
+    const h = `\x93NUMPY\x01\x00` + String.fromCharCode(hdr.length & 255, hdr.length >> 8) + hdr;
+    const head = Uint8Array.from(h, (ch) => ch.charCodeAt(0)), buf = new ArrayBuffer(head.length + f.scan.range.byteLength);
+    new Uint8Array(buf).set(head);
+    new Float32Array(buf, head.length).set(f.scan.range);
+    return { filename: `${name}_range_${String(f.frame).padStart(6, '0')}.npy`, mime: 'application/octet-stream', data: buf };
   }
   if (what === 'heightmap') { // .npy float64 (rows south -> north) + geometry in the header comment-free JSON sidecar
     const t = world.terrain, header = `{'descr': '<f8', 'fortran_order': False, 'shape': (${t.n}, ${t.n}), }`;

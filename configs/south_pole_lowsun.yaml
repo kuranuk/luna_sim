@@ -67,7 +67,9 @@ lidars:
     noise:
       model: spad
       range_max_m: 100.0
-      spad: {pulse_energy_j: 1.0e-6, filter_bandwidth_nm: 1.0, pulses_per_frame: 1000}
+      # pulse energy: sample value giving a complete range image to range_max_m also on sunlit ground
+      # (1e-6 J loses returns beyond ~20 m in sunlight); range walk corrected by the sensor.
+      spad: {pulse_energy_j: 5.0e-4, filter_bandwidth_nm: 1.0, pulses_per_frame: 1000, range_walk_correction: true}
   # Rotating 32-beam LiDAR with the simple Gaussian model (for comparison).
   - name: spin32
     pattern: {kind: spinning, channels: 32, vertical_min_deg: -25.0, vertical_max_deg: 15.0, horizontal_resolution_deg: 0.2}

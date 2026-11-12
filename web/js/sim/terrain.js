@@ -293,6 +293,19 @@ export function heightAt(hm, x, y) {
   return z00 + fv * (zy - z00) + fu * (z11 - zy);
 }
 
+/** Geometric unit normal of the mesh triangle under (x, y) (the facet a ray actually hits). */
+export function facetNormalAt(hm, x, y) {
+  const { z, n, res, x0, y0 } = hm;
+  const u = Math.min(Math.max((x - x0) / res, 0), n - 1), v = Math.min(Math.max((y - y0) / res, 0), n - 1);
+  const j = Math.min(Math.floor(u), n - 2), i = Math.min(Math.floor(v), n - 2);
+  const z00 = z[i * n + j], z11 = z[(i + 1) * n + j + 1];
+  let gx, gy;
+  if (u - j >= v - i) { const zx = z[i * n + j + 1]; gx = (zx - z00) / res; gy = (z11 - zx) / res; }
+  else { const zy = z[(i + 1) * n + j]; gx = (z11 - zy) / res; gy = (zy - z00) / res; }
+  const nn = Math.hypot(gx, gy, 1);
+  return [-gx / nn, -gy / nn, 1 / nn];
+}
+
 /** Node gradient (central differences, one-sided at edges) -> unit normal at node (i, j). */
 export function nodeNormal(hm, i, j) {
   const { z, n, res } = hm;
