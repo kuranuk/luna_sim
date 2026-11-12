@@ -84,6 +84,7 @@ out.rockAreaFractionAbove = [0.5, 0.75, 1.0, 1.5].map((D) => [D, rd.filter((d) =
 // 6. full terrain: tilt recovered by a plane fit
 {
   const s2 = structuredClone(sc); s2.terrain.n = 512;
+  s2.terrain.tilt = t.tilt = { slopeDeg: 3, downhillAzimuthDeg: 50 }; // config-only model
   for (const k of ['fractal', 'craters', 'rocks']) s2.terrain[k].enabled = false;
   const hm = buildTerrain(s2), az = t.tilt.downhillAzimuthDeg * Math.PI / 180;
   const down = (heightAt(hm, 0, 0) - heightAt(hm, 10 * Math.sin(az), 10 * Math.cos(az))) / 10; // drop per metre downhill

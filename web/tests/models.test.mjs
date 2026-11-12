@@ -20,6 +20,7 @@ test('terrain models switch off individually', () => {
   assert.equal(buildTerrain(sc).craters.length, 0);
   // tilt off: a pure plane when everything else is off too
   sc = small(); for (const k of ['fractal', 'craters', 'rocks']) sc.terrain[k].enabled = false;
+  sc.terrain.tilt = { slopeDeg: 3, downhillAzimuthDeg: 50 }; // config-only model (no preset uses it any more)
   const tilted = buildTerrain(sc);
   sc.terrain.tilt.enabled = false;
   const flat = buildTerrain(sc);
@@ -30,6 +31,7 @@ test('terrain models switch off individually', () => {
 test('rover slip and sideways drift switch off', () => {
   const sc = small();
   for (const k of ['fractal', 'craters', 'rocks']) sc.terrain[k].enabled = false; // 3° tilted plane
+  sc.terrain.tilt = { slopeDeg: 3, downhillAzimuthDeg: 50 };
   sc.lidars = []; sc.imu = null; sc.objects = [];
   const run = (flags) => {
     const w = new World(sc);

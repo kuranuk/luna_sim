@@ -94,9 +94,10 @@ export const SCENARIOS = {
   south_pole_lowsun: base('south_pole_lowsun', 2026, {
     n: 1024, res: 0.2,
     fractal: { enabled: true, hurst: 0.85, rmsSlopeDeg: 6, baseline: 1, rolloffWavelength: 400 },
-    tilt: { slopeDeg: 3, downhillAzimuthDeg: 50 },
-    // Base shape from real data (LRO LOLA shots gridded at 10 m by scripts/fetch_lola_dem.py). Replaces the
-    // tilt; fractal relief and craters are then only added below 40 m (see buildTerrain).
+    // No synthetic regional slope (user decision 2026-11: "傾斜はなくして DEM だけ"): the slope comes from the DEM.
+    tilt: { slopeDeg: 0, downhillAzimuthDeg: 0 },
+    // Base shape from real data (LRO LOLA shots gridded at 10 m by scripts/fetch_lola_dem.py);
+    // fractal relief and craters are then only added below 40 m (see buildTerrain).
     dem: { enabled: true, url: 'assets/dem/lola_89.5S_0E.json' },
     craters: { enabled: true, equilibriumFraction: 0.02, dMin: 0.5, dMax: 60, degradationA: 1, degradationB: 1, shape: CRATER_SHAPE },
     rocks: { enabled: true, k: 0.05, dMin: 0.4, dMax: 4, heightRatio: 0.5, axisRatioMin: 0.6, ejecta: true, ejectaK: 0.15, ejectaMinCraterD: 20 },

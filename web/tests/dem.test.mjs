@@ -47,8 +47,10 @@ test('terrain with all synthetic models off equals the DEM; the tilt is not appl
   const t = buildTerrain(sc, dem);
   assert.equal(t.dem, true);
   for (const [x, y] of [[0, 0], [10.5, -20.25], [-60, 33]]) assert.ok(Math.abs(heightAt(t, x, y) - demHeight(dem, x, y)) < 2e-3);
-  const noDem = buildTerrain(sc, null); // without the data: procedural (tilt 3 deg)
-  assert.ok(Math.abs(heightAt(noDem, 10, 0) - heightAt(noDem, 0, 0)) > 0.3);
+  const noDem = buildTerrain(sc, null); // without the data: procedural, and no synthetic slope either
+  assert.equal(heightAt(noDem, 10, 0), 0);
+  sc.terrain.tilt = { slopeDeg: 3, downhillAzimuthDeg: 50 }; // a tilt from a config file is ignored while the DEM is used
+  assert.ok(Math.abs(heightAt(buildTerrain(sc, dem), 10.5, -20.25) - demHeight(dem, 10.5, -20.25)) < 2e-3);
 });
 
 test('with a DEM only small-scale detail is added on top', () => {

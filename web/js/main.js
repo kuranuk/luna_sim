@@ -354,11 +354,10 @@ $('globe-btn').addEventListener('click', () => {
 // entries are sent to the worker and apply immediately. Kept across rebuilds, presets and config files.
 const MODELS = [
   { key: 'dem', group: 'terrain', label: '実 DEM のベース地形（LOLA のレーザ高度計データ、10 m 格子）',
-    src: 'LRO LOLA RDR のレーザ測距点（NASA GSFC LOLA チーム, Smith et al. (2010) Space Sci. Rev. 150）。USGS Astrogeology が AWS Open Data で公開する COPC タイル（s3://astrogeo-ard/moon/lro/lola/）から scripts/fetch_lola_dem.py で格子化。使うと「地域の傾斜」は無効、フラクタル起伏とクレーターは 40 m 未満だけを上乗せ',
+    src: 'LRO LOLA RDR のレーザ測距点（NASA GSFC LOLA チーム, Smith et al. (2010) Space Sci. Rev. 150）。USGS Astrogeology が AWS Open Data で公開する COPC タイル（s3://astrogeo-ard/moon/lro/lola/）から scripts/fetch_lola_dem.py で格子化。使うとフラクタル起伏とクレーターは 40 m 未満だけを上乗せ',
     available: (s) => !!(s.terrain.dem && s.terrain.dem.url), na: 'このプリセットの地点には DEM ファイルを同梱していません（南極プリセットのみ）',
     get: (s) => !!(s.terrain.dem && s.terrain.dem.enabled && s.terrain.dem.url), set: (s, v) => { if (s.terrain.dem && s.terrain.dem.url) s.terrain.dem.enabled = v; } },
   { key: 'fractal', group: 'terrain', label: 'フラクタル起伏（細かな凹凸・うねり）', src: 'RMS 斜度の定義: Rosenburg et al. (2011) JGR 116, E02001。Hurst 指数・RMS 斜度の値はサンプル値', get: (s) => s.terrain.fractal.enabled, set: (s, v) => { s.terrain.fractal.enabled = v; } },
-  { key: 'tilt', group: 'terrain', label: '地域の傾斜（一様な斜面）', src: 'サンプル値（シナリオで指定）', get: (s) => s.terrain.tilt.enabled !== false, set: (s, v) => { s.terrain.tilt.enabled = v; } },
   { key: 'craters', group: 'terrain', label: 'クレーター（リム・放出物の盛り上がり込み）', src: '平衡密度: Gault (1970) Radio Sci. 5; Xiao & Werner (2015) JGR Planets 120。d/D: Stopar et al. (2017) Icarus; Pike (1977)。劣化 d/D: Basilevsky et al. (2018)。放出物の厚さ: McGetchin et al. (1973) EPSL 20', get: (s) => s.terrain.craters.enabled, set: (s, v) => { s.terrain.craters.enabled = v; } },
   { key: 'rocks', group: 'terrain', label: '岩（散在する岩）', src: 'サイズ分布: Golombek & Rapp (1997) JGR 102; 月への適用 Li & Wu (2018) JGR Planets 123。被覆率 k・高さ比はサンプル値', get: (s) => s.terrain.rocks.enabled && s.terrain.rocks.background !== false, set: (s, v) => { s.terrain.rocks.background = v; s.terrain.rocks.enabled = v || s.terrain.rocks.ejecta; } },
   { key: 'ejecta', group: 'terrain', label: '岩（新しいクレーター周りの放出岩塊）', src: 'サンプル値（要確認: Bart & Melosh (2010) Icarus 209）', get: (s) => s.terrain.rocks.enabled && !!s.terrain.rocks.ejecta, set: (s, v) => { s.terrain.rocks.ejecta = v; s.terrain.rocks.enabled = v || s.terrain.rocks.background !== false; } },
@@ -376,7 +375,6 @@ function setupModelsTab() {
     const na = m.available && !m.available(scenario);
     lab.innerHTML = `<input type="checkbox" data-model="${m.key}" ${m.get(scenario) ? 'checked' : ''} ${na ? 'disabled' : ''}> ${m.label}`;
     if (na) lab.title = m.na;
-    if (m.key === 'tilt' && MODELS[0].get(scenario)) lab.title = '実 DEM を使っている間は無効です（傾斜は DEM に含まれます）';
     if (m.key === 'ejecta' && !scenario.terrain.craters.enabled) lab.title = 'クレーターを使わないと放出岩塊もありません';
     lab.querySelector('input').addEventListener('change', (e) => setModel(m, e.target.checked));
     $(`models-${m.group}`).appendChild(lab);

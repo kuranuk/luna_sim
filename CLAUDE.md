@@ -221,7 +221,7 @@ fractal (`terrain/fractal`) → tilt → craters (`terrain/craters/{count,size,p
 - カメラの追加・削除（2026-11 ユーザー依頼「後ろにもう一台」）: `World.addCamera` / `removeCamera`、worker の `add-camera` /
   `remove-camera`（追加時にすぐ 1 枚撮る）、main の `addedCameras` / `removedCameras` で再生成に保持。画像は 1 台ずつのフローティング窓
   （`.cam-win`、ドラッグ移動・幅変更、位置は localStorage）。路面モデルの各項目と月全体表示には出典を表示（docs/references.md と同じ）。
-- 路面モデルタブ（2026-11 ユーザー依頼）: `main.js` の `MODELS`（scenario のフラグ: terrain.fractal/tilt/craters.enabled、
+- 路面モデルタブ（2026-11 ユーザー依頼）: `main.js` の `MODELS`（scenario のフラグ: terrain.dem / fractal / craters.enabled、
   rocks.background / ejecta、objects[].enabled、rover.slipEnabled / lateralEnabled）。地形は再生成（400 ms まとめ）、走行は worker の
   `rover-model` で即時。`modelOverrides` で再生成・プリセット変更に保持（設定ファイル読み込みで解除）。テスト `web/tests/models.test.mjs`。
 - LiDAR の再検証（2026-11 ユーザー指摘「距離画像は抜け目なく出力されるはず」）: JS の SPAD は Python と同じ窓方式に移植
@@ -236,6 +236,8 @@ fractal (`terrain/fractal`) → tilt → craters (`terrain/craters/{count,size,p
   Catmull-Rom 双 3 次 / `demProblems`）。`buildTerrain(sc, dem)`: DEM があれば tilt を使わず、フラクタルの roll-off とクレーター dMax を
   DEM 格子の 4 倍（40 m）に制限。データは scenario に入れず `new World(sc, { dem })` で渡す（worker が同一オリジンから fetch、Node は
   `web/tools/load_dem.mjs`）。データ無しで作ると手続き生成になり `world.demMissing = true`（既存テストはこの経路）。南極プリセットだけ既定オン。
+  一様な傾斜（tilt）は廃止（2026-11 ユーザー判断「傾斜はなくして DEM だけ」）: 全プリセット slopeDeg 0、路面モデルタブから削除、
+  `terrain.tilt` は設定ファイル専用（DEM 使用時は無視）。
 - 画角: `World.setFov(kind, name, params)`（パターン / 内部行列を作り直す、値はクランプ）。UI の変更は `sensorOverrides` で
   再生成後も保持。LiDAR の検証は `web/tests/ref_raycast.mjs`（独立参照実装）と `web/tools/dump_rays.mjs`（Python 比較）。
 - `World.advance(dt, {scans})`: `'all'` = 予定時刻のスキャンを全部（決定的、閉ループ用）、`'latest'` = 実時間用
