@@ -8,7 +8,7 @@ import { buildTerrain, heightAt } from '../js/sim/terrain.js';
 import { World } from '../js/sim/world.js';
 import { loadDem } from '../tools/load_dem.mjs';
 
-const META = (n, res) => ({ format: 'lunarsim-dem/1', site: { lat: -89.5, lon: 0 }, n, res, x0: -0.5 * (n - 1) * res, y0: -0.5 * (n - 1) * res, data: 'x.f32' });
+const META = (n, res) => ({ format: 'lunarsim-dem/1', site: { lat: -89.453, lon: 222.88 }, n, res, x0: -0.5 * (n - 1) * res, y0: -0.5 * (n - 1) * res, data: 'x.f32' });
 function synthetic(n, res, f) {
   const meta = META(n, res), a = new Float32Array(n * n);
   for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) a[i * n + j] = f(meta.x0 + j * res, meta.y0 + i * res);
@@ -59,7 +59,9 @@ test('with a DEM only small-scale detail is added on top', () => {
   sc.objects = [];
   const t = buildTerrain(sc, dem);
   assert.ok(t.craters.length > 10);
-  assert.ok(Math.max(...t.craters.map((c) => c.d)) <= 40); // larger craters are the DEM's business
+  assert.ok(Math.max(...t.craters.map((c) => c.d)) <= 40); // detailBelow: larger craters are the DEM's business
+  sc.terrain.dem.detailBelow = 10;
+  assert.ok(Math.max(...buildTerrain(sc, dem).craters.map((c) => c.d)) <= 10);
   let lo = Infinity, hi = -Infinity;
   for (const v of t.z) { lo = Math.min(lo, v); hi = Math.max(hi, v); }
   assert.ok(hi - lo < 25 && hi - lo > 1); // relief of the detail only (no 400 m undulation, no tilt)
@@ -72,16 +74,16 @@ test('site mismatch and too small DEM are refused', () => {
   assert.equal(demProblems(synthetic(33, 10, () => 0), other).length, 1);
 });
 
-test('shipped LOLA DEM: south pole preset uses it; metadata and slope are as documented', () => {
+test('shipped LOLA DEM (Site01): south pole preset uses it; metadata and slope are as documented', () => {
   const sc = bare(), dem = loadDem(sc);
-  assert.deepEqual(dem.site, { lat: -89.5, lon: 0 });
-  assert.equal(dem.n, 129); assert.equal(dem.res, 10);
-  assert.ok(Math.abs(demHeight(dem, 0, 0)) < 1.5); // heights are relative to the site
-  const gx = (demHeight(dem, 10, 0) - demHeight(dem, -10, 0)) / 20, gy = (demHeight(dem, 0, 10) - demHeight(dem, 0, -10)) / 20;
+  assert.deepEqual(dem.site, { lat: -89.453, lon: 222.88 });
+  assert.deepEqual(sc.site, dem.site);
+  assert.equal(dem.n, 257); assert.equal(dem.res, 5);
+  assert.equal(demHeight(dem, 0, 0), 0); // heights are relative to the site
+  const gx = (demHeight(dem, 5, 0) - demHeight(dem, -5, 0)) / 10, gy = (demHeight(dem, 0, 5) - demHeight(dem, 0, -5)) / 10;
   const slope = Math.atan(Math.hypot(gx, gy)) * 180 / Math.PI;
-  assert.ok(Math.abs(slope - dem.stats.slope_at_site_deg) < 0.5, `slope ${slope}`);
-  assert.ok(slope > 5 && slope < 12);
-  assert.ok(gx > 0); // ground rises to the east (downhill azimuth ~267 deg)
+  assert.ok(Math.abs(slope - dem.stats.slope_at_site_deg) < 0.2, `slope ${slope}`);
+  assert.ok(slope < 5); // the start is on the flat part of the ridge (ROI 4)
   for (const size of [[512, 0.25], [1024, 0.2], [1024, 0.5]]) { // every size of the UI fits inside the DEM
     Object.assign(sc.terrain, { n: size[0], res: size[1] });
     assert.deepEqual(demProblems(dem, sc), []);

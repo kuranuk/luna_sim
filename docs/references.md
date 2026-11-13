@@ -134,8 +134,11 @@
 
 | 量 | 採用 | 状態 | 出典 |
 |---|---|---|---|
-| ベース地形（南緯 89.5°、経度 0°、±640 m、10 m 格子） | LOLA RDR の測距点 6949 点を局所 ENU に投影 → Delaunay 線形補間 → ガウス平滑（1 セル）。残差 RMS 0.74 m | 実データ（パブリックドメイン） | Smith et al. (2010) "The Lunar Orbiter Laser Altimeter Investigation on the LRO Mission", Space Sci. Rev. 150, 209–241。データ: USGS Astrogeology Analysis Ready Data（AWS Open Data, `s3://astrogeo-ard/moon/lro/lola/LolaRDR_*.copc.laz`） |
-| 基準球 | 半径 1737.4 km（タイルの座標系: 月固定直交座標） | 確認済み | IAU 2015（Archinal et al. 2018, Celest. Mech. Dyn. Astron. 130:22） |
-| DEM に重ねる細部の上限 | 波長・クレーター直径とも DEM 格子の 4 倍（40 m）未満 | **サンプル値**（測距点間隔 約 15 m より細かい形は実測に無いため） | TODO(ref): LOLA の実効分解能に基づく値 |
+| ベース地形（Site01 Connecting ridge、南緯 89.453°・東経 222.88°、±640 m、5 m 格子） | PGDA の 5 m/px DEM `Site01_final_adj_5mpp_surf.tif` の画素を局所 ENU に変換 → Delaunay 線形補間（平滑なし） | 実データ | Barker et al. (2021) "Improved LOLA elevation maps for south pole landing sites: Error estimates and their impact on illumination conditions", Planet. Space Sci. 203, 105119。データ: NASA GSFC PGDA https://pgda.gsfc.nasa.gov/products/78 |
+| DEM の誤差 | 高さ RMS 0.3–0.5 m、斜度 RMS 1.5–2.5°（ROI 内の中央値）。5 m 画素の約 90 % は補間 | 論文の値 | 同上 |
+| 地点 | 論文の ROI 4（平均日照 > 70 % の領域）の中心 | ユーザー判断（2026-11「プリセットを site01 などで」）+ 斜度が小さい ROI を選定 | 同上（`Site01_ROIs.tgz`） |
+| 投影・基準球 | 南極ポーラーステレオ（極で縮尺 1）、半径 1737.4 km | GeoTIFF のタグで確認 | 同上 |
+| DEM に重ねる細部の上限 `terrain.dem.detailBelow` | 40 m 未満（波長・クレーター直径） | **サンプル値**（測線間隔より細かい形は実測に無いため） | TODO(ref): LOLA の実効分解能に基づく値 |
+| 別経路: 任意地点の格子化 | LOLA RDR 測距点（AWS Open Data `s3://astrogeo-ard/moon/lro/lola/`）を 10 m 格子化（`scripts/fetch_lola_dem.py`） | 実データ | Smith et al. (2010) Space Sci. Rev. 150, 209–241; USGS Astrogeology Analysis Ready Data |
 
-限界: 測距点は軌道に沿った筋状で、筋の間は補間。同梱範囲の外の地形（遠くの山による影）は含まない。
+限界: 同梱範囲の外の地形（遠くの山による影）は含まない。

@@ -96,12 +96,14 @@ export const SCENARIOS = {
     fractal: { enabled: true, hurst: 0.85, rmsSlopeDeg: 6, baseline: 1, rolloffWavelength: 400 },
     // No synthetic regional slope (user decision 2026-11: "傾斜はなくして DEM だけ"): the slope comes from the DEM.
     tilt: { slopeDeg: 0, downhillAzimuthDeg: 0 },
-    // Base shape from real data (LRO LOLA shots gridded at 10 m by scripts/fetch_lola_dem.py);
-    // fractal relief and craters are then only added below 40 m (see buildTerrain).
-    dem: { enabled: true, url: 'assets/dem/lola_89.5S_0E.json' },
+    // Base shape from real data: LOLA 5 m/pix DEM of Site01 "Connecting ridge" (Barker et al. 2021, NASA GSFC
+    // PGDA), converted by scripts/fetch_lola_dem.py --geotiff. Site = centre of the paper's ROI 4 (user decision
+    // 2026-11: "プリセットを site01 などで"). About 90 % of the 5 m pixels are interpolated between LOLA tracks,
+    // so fractal relief and craters are added below detailBelow = 40 m (sample value, TODO(ref)).
+    dem: { enabled: true, url: 'assets/dem/lola_site01.json', detailBelow: 40 },
     craters: { enabled: true, equilibriumFraction: 0.02, dMin: 0.5, dMax: 60, degradationA: 1, degradationB: 1, shape: CRATER_SHAPE },
     rocks: { enabled: true, k: 0.05, dMin: 0.4, dMax: 4, heightRatio: 0.5, axisRatioMin: 0.6, ejecta: true, ejectaK: 0.15, ejectaMinCraterD: 20 },
-  }, { mode: 'astronomical', utc: '2026-12-20T00:00:00Z', azDeg: 49, elDeg: 1.6 }, { lat: -89.5, lon: 0 }),
+  }, { mode: 'astronomical', utc: '2026-12-01T12:00:00Z', azDeg: 51, elDeg: 1.8 }, { lat: -89.453, lon: 222.88 }),
   mare_plain: base('mare_plain', 42, {
     n: 1024, res: 0.2,
     fractal: { enabled: true, hurst: 0.9, rmsSlopeDeg: 4, baseline: 1, rolloffWavelength: 200 },

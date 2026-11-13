@@ -265,14 +265,15 @@ export function stampRocks(hm, rocks, labels) {
 
 /** Build the terrain of a scenario: { z, labels, n, res, x0, y0, extent, craters, rocks }. */
 // With a real DEM (dem.js) as the base: the DEM gives the shape at scales above its grid spacing, so
-// the regional tilt is not used, the fractal relief is limited to wavelengths below DEM_DETAIL_CELLS
-// DEM cells and the synthetic craters to diameters below that (larger ones are already in the DEM).
+// the regional tilt is not used, the fractal relief is limited to wavelengths below terrain.dem.detailBelow
+// [m] (default DEM_DETAIL_CELLS DEM cells) and the synthetic craters to diameters below that (larger ones
+// are already in the DEM).
 export const DEM_DETAIL_CELLS = 4;
 export function buildTerrain(sc, dem = null) {
   const t = sc.terrain, n = t.n, res = t.res;
   const x0 = -0.5 * (n - 1) * res, y0 = x0;
   if (dem) { const bad = demProblems(dem, sc); if (bad.length) throw new Error(bad.join(' / ')); }
-  const lim = dem ? DEM_DETAIL_CELLS * dem.res : Infinity;
+  const lim = dem ? (t.dem && t.dem.detailBelow) || DEM_DETAIL_CELLS * dem.res : Infinity;
   const fp = dem ? { ...t.fractal, rolloffWavelength: Math.min(t.fractal.rolloffWavelength || Infinity, lim) } : t.fractal;
   const z = fractal(n, res, fp, sc.seed);
   if (dem) {

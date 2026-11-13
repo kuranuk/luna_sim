@@ -1,0 +1,29 @@
+{
+ "format": "lunarsim-dem/1",
+ "site": {
+  "lat": -89.453,
+  "lon": 222.88
+ },
+ "n": 257,
+ "res": 5.0,
+ "x0": -640.0,
+ "y0": -640.0,
+ "data": "lola_site01.f32",
+ "height_of_site_above_reference_sphere_m": 1956.127936948835,
+ "reference_radius_m": 1737400.0,
+ "frame": "local ENU at the site; rows south to north, columns west to east; heights relative to the site (curvature of the Moon included)",
+ "source": "LOLA 5 m/pix south-pole site DEM, Site01 (Connecting ridge), Site01_final_adj_5mpp_surf.tif: Barker et al. (2021) Planet. Space Sci. 203, 105119; NASA GSFC PGDA https://pgda.gsfc.nasa.gov/products/78",
+ "tiles": [
+  "Site01_surf.tif"
+ ],
+ "processing": "5 m/pix pixels -> local ENU -> Delaunay linear interpolation, no smoothing",
+ "created": "2026-11-13",
+ "stats": {
+  "rms_residual_m": 0.05188269127403581,
+  "slope_at_site_deg": 1.3851803494502533,
+  "slope_median_deg": 7.372805825104974,
+  "slope_max_deg": 29.277794425775884,
+  "downhill_azimuth_at_site_deg": 171.0793249753129,
+  "source_pixels": 65402
+ }
+}

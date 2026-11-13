@@ -58,6 +58,7 @@ function check(sc, errors) {
     else if (t.dem.enabled && (typeof t.dem.url !== 'string' || !/^[\w./-]+\.json$/.test(t.dem.url) || t.dem.url.includes('..'))) {
       errors.push(`terrain.dem.url = ${JSON.stringify(t.dem.url)}: サイト内の相対パス（.json）にしてください`);
     }
+    if (isObj(t.dem) && t.dem.detailBelow !== undefined) num(t.dem.detailBelow, 'terrain.dem.detailBelow', 1, 1000);
   }
   num(sc.seed, 'seed', 0, 2 ** 32 - 1, { int: true });
   if (!['manual', 'astronomical'].includes(sc.sun.mode)) errors.push('sun.mode は manual / astronomical');

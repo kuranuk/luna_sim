@@ -16,6 +16,14 @@ Needs the optional packages ``laspy[lazrs]`` and ``requests`` (not part of the r
 
     pip install "laspy[lazrs]" requests
     python scripts/fetch_lola_dem.py --lat -89.5 --lon 0 --name lola_89.5S_0E
+
+Alternative source (``--geotiff``): a finished polar-stereographic LOLA DEM, e.g. the 5 m/pix
+south-pole site DEMs of NASA GSFC PGDA (Barker et al. 2021, Planet. Space Sci. 203, 105119;
+https://pgda.gsfc.nasa.gov/products/78, ``<site>_final_adj_5mpp_surf.tif``). Download the file by
+hand; its pixels around the site are converted to the same local ENU grid (needs ``tifffile``):
+
+    python scripts/fetch_lola_dem.py --geotiff Site01_final_adj_5mpp_surf.tif \
+        --lat -89.453 --lon 222.88 --res 5 --name lola_site01
 """
 
 from __future__ import annotations
@@ -117,8 +125,57 @@ def grid_dem(
     return ax, z, stats
 
 
+def stereo_xy(lat_deg: float, lon_deg: float, pole: int) -> tuple[float, float]:
+    """Polar stereographic x, y [m] (true scale at the pole, lon 0 along +y south / -y north)."""
+    la, lo = math.radians(lat_deg), math.radians(lon_deg)
+    rho = 2.0 * MOON_RADIUS_M * math.tan(math.pi / 4.0 - pole * la / 2.0)
+    return rho * math.sin(lo), -pole * rho * math.cos(lo)
+
+
+def geotiff_points(
+    path: Path, lat_deg: float, lon_deg: float, half_m: float
+) -> tuple[FloatArray, str]:
+    """Pixels of a polar-stereographic height GeoTIFF near the site as ENU points [m]."""
+    import tifffile  # optional dependency
+
+    with tifffile.TiffFile(path) as tf:
+        page = tf.pages[0]
+        tags = {t.code: t.value for t in page.tags.values()}
+        z = np.asarray(page.asarray(), dtype=np.float64)
+    sx, sy = tags[33550][:2]  # ModelPixelScale
+    tie = tags[33922]  # ModelTiepoint: raster (i, j, k) -> model (x, y, z)
+    doubles = tags.get(34736, ())
+    if MOON_RADIUS_M not in doubles or (-90.0 not in doubles and 90.0 not in doubles):
+        raise ValueError("expected a polar stereographic GeoTIFF on the 1737.4 km sphere")
+    pole = -1 if -90.0 in doubles else 1
+    # GDAL_METADATA node_offset=1 / PixelIsArea: the tiepoint is the outer corner of pixel (0, 0)
+    x0, y0 = tie[3] - tie[0] * sx, tie[4] + tie[1] * sy
+    cx, cy = stereo_xy(lat_deg, lon_deg, pole)
+    m = 1.5 * half_m + 100.0
+    j0, j1 = int((cx - m - x0) / sx), int((cx + m - x0) / sx) + 1
+    i0, i1 = int((y0 - cy - m) / sy), int((y0 - cy + m) / sy) + 1
+    if j0 < 0 or i0 < 0 or j1 > z.shape[1] or i1 > z.shape[0]:
+        raise ValueError(f"the window around the site leaves the raster ({path.name})")
+    x = x0 + (np.arange(j0, j1) + 0.5) * sx
+    y = y0 - (np.arange(i0, i1) + 0.5) * sy
+    xx, yy = np.meshgrid(x, y)
+    h = z[i0:i1, j0:j1]
+    ok = np.isfinite(h)
+    xx, yy, h = xx[ok], yy[ok], h[ok]
+    rho = np.hypot(xx, yy)
+    lat = -pole * (2.0 * np.arctan(rho / (2.0 * MOON_RADIUS_M)) - math.pi / 2.0)
+    lon = np.arctan2(xx, -pole * yy)
+    r = MOON_RADIUS_M + h
+    xyz = np.stack([r * np.cos(lat) * np.cos(lon), r * np.cos(lat) * np.sin(lon), r * np.sin(lat)])
+    site, basis = enu_basis(lat_deg, lon_deg)
+    enu = (basis @ (xyz - site[:, None])).T
+    keep = (np.abs(enu[:, 0]) <= 1.3 * half_m) & (np.abs(enu[:, 1]) <= 1.3 * half_m)
+    return enu[keep], f"{sx:g} m/pix"
+
+
 def write_dem(out_dir: Path, name: str, lat: float, lon: float, ax: FloatArray, z: FloatArray,
-              stats: dict[str, float], tiles: list[str]) -> None:  # fmt: skip
+              stats: dict[str, float], tiles: list[str], source: str | None = None,
+              processing: str | None = None) -> None:  # fmt: skip
     c = len(ax) // 2
     z0 = float(z[c, c])
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -132,10 +189,12 @@ def write_dem(out_dir: Path, name: str, lat: float, lon: float, ax: FloatArray, 
         "reference_radius_m": MOON_RADIUS_M,
         "frame": "local ENU at the site; rows south to north, columns west to east; heights "
                  "relative to the site (curvature of the Moon included)",
-        "source": "LRO LOLA RDR laser shots (NASA GSFC, LOLA team), USGS Astrogeology "
-                  "analysis-ready COPC tiles on AWS Open Data: s3://astrogeo-ard/moon/lro/lola/",
+        "source": source
+        or "LRO LOLA RDR laser shots (NASA GSFC, LOLA team), USGS Astrogeology "
+        "analysis-ready COPC tiles on AWS Open Data: s3://astrogeo-ard/moon/lro/lola/",
         "tiles": tiles,
-        "processing": "Delaunay linear interpolation of the shots + Gaussian smoothing (1 cell)",
+        "processing": processing
+        or "Delaunay linear interpolation of the shots + Gaussian smoothing (1 cell)",
         "created": datetime.date.today().isoformat(),
         "stats": stats,
     }  # fmt: skip
@@ -152,10 +211,22 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--res", type=float, default=10.0, help="grid spacing [m]")
     ap.add_argument("--name", required=True, help="output base name")
     ap.add_argument("--out", type=Path, default=ROOT / "web" / "assets" / "dem")
+    ap.add_argument("--geotiff", type=Path, help="polar stereographic DEM instead of the shots")
+    ap.add_argument("--source", help="source text stored in the file (with --geotiff)")
     args = ap.parse_args(argv)
-    enu, tiles = fetch_points(args.lat, args.lon, args.half)
-    ax, z, stats = grid_dem(enu, args.half, args.res)
-    write_dem(args.out, args.name, args.lat, args.lon, ax, z, stats, tiles)
+    if args.geotiff:
+        enu, scale = geotiff_points(args.geotiff, args.lat, args.lon, args.half)
+        ax, z, stats = grid_dem(enu, args.half, args.res, smooth_cells=0.0)
+        stats["source_pixels"] = stats.pop("shots")
+        del stats["mean_shot_spacing_m"]
+        source = args.source or f"polar stereographic LOLA DEM {args.geotiff.name}"
+        processing = f"{scale} pixels -> local ENU -> Delaunay linear interpolation, no smoothing"
+        write_dem(args.out, args.name, args.lat, args.lon, ax, z, stats, [args.geotiff.name],
+                  source, processing)  # fmt: skip
+    else:
+        enu, tiles = fetch_points(args.lat, args.lon, args.half)
+        ax, z, stats = grid_dem(enu, args.half, args.res)
+        write_dem(args.out, args.name, args.lat, args.lon, ax, z, stats, tiles)
     n = len(ax)
     print(f"wrote {args.out / args.name}.json/.f32: {n} x {n} at {args.res} m")
     print(json.dumps(stats))

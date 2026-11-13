@@ -10,6 +10,7 @@ import json
 from pathlib import Path
 
 import numpy as np
+import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -46,13 +47,40 @@ def test_grid_dem_recovers_a_plane_from_scattered_shots() -> None:
     assert abs(stats["downhill_azimuth_at_site_deg"] - 90.0) < 1.0
 
 
+def test_geotiff_mode_converts_polar_stereographic_pixels(tmp_path: Path) -> None:
+    """A sphere-following raster (h = 100 m everywhere) becomes the curved cap in ENU."""
+    tifffile = pytest.importorskip("tifffile")
+    mod = _load()
+    lat, lon = -89.453, 222.88
+    cx, cy = mod.stereo_xy(lat, lon, -1)
+    assert cx < 0 and cy < 0  # lon 222.88 E: third quadrant of the south polar map
+    n, res = 400, 5.0
+    x0, y0 = round(cx / res) * res - n * res / 2, round(cy / res) * res + n * res / 2
+    path = tmp_path / "flat.tif"
+    tags = [
+        (33550, "d", 3, (res, res, 0.0), False),
+        (33922, "d", 6, (0.0, 0.0, 0.0, x0, y0, 0.0), False),
+        (34736, "d", 4, (-90.0, 0.0, mod.MOON_RADIUS_M, mod.MOON_RADIUS_M), False),
+    ]
+    tifffile.imwrite(path, np.full((n, n), 100.0, dtype=np.float32), extratags=tags)
+    enu, scale = mod.geotiff_points(path, lat, lon, 300.0)
+    assert scale == "5 m/pix"
+    r = np.hypot(enu[:, 0], enu[:, 1])
+    expect = 100.0 - r**2 / (2 * (mod.MOON_RADIUS_M + 100.0))  # sagitta of the sphere
+    assert np.abs(enu[:, 2] - expect).max() < 1e-3
+    assert r.min() < 5.0 and enu[:, 0].max() > 300.0 and enu[:, 1].min() < -300.0
+
+
 def test_shipped_dem_matches_its_metadata() -> None:
-    meta = json.loads((ROOT / "web/assets/dem/lola_89.5S_0E.json").read_text())
+    meta = json.loads((ROOT / "web/assets/dem/lola_site01.json").read_text())
     z = np.fromfile(ROOT / "web/assets/dem" / meta["data"], dtype="<f4")
     assert meta["format"] == "lunarsim-dem/1"
+    assert meta["site"] == {"lat": -89.453, "lon": 222.88}
     assert z.size == meta["n"] ** 2 and np.isfinite(z).all()
     z = z.reshape(meta["n"], meta["n"])
     c = meta["n"] // 2
-    assert abs(z[c, c]) < 1.5  # heights are relative to the site
+    assert z[c, c] == 0.0  # heights are relative to the site
     assert meta["x0"] == -0.5 * (meta["n"] - 1) * meta["res"]
-    assert "LOLA" in meta["source"] and meta["stats"]["shots"] > 1000
+    assert "LOLA" in meta["source"] and "Barker" in meta["source"]
+    # the ridge top is about 1.96 km above the reference sphere (Barker et al. 2021, Site01)
+    assert 1900.0 < meta["height_of_site_above_reference_sphere_m"] < 2000.0

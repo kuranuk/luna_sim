@@ -236,6 +236,10 @@ fractal (`terrain/fractal`) → tilt → craters (`terrain/craters/{count,size,p
   Catmull-Rom 双 3 次 / `demProblems`）。`buildTerrain(sc, dem)`: DEM があれば tilt を使わず、フラクタルの roll-off とクレーター dMax を
   DEM 格子の 4 倍（40 m）に制限。データは scenario に入れず `new World(sc, { dem })` で渡す（worker が同一オリジンから fetch、Node は
   `web/tools/load_dem.mjs`）。データ無しで作ると手続き生成になり `world.demMissing = true`（既存テストはこの経路）。南極プリセットだけ既定オン。
+  2026-11 ユーザー判断「プリセットを site01 などで」: 南極プリセットの地点を Site01 Connecting ridge（-89.453, 222.88 = Barker et al. 2021 の
+  ROI 4 中心）に移し、DEM は PGDA の 5 m GeoTIFF から `--geotiff` で作った `lola_site01`（旧 `lola_89.5S_0E` は削除）。細部の上限は
+  `terrain.dem.detailBelow`（プリセット 40 m、無指定は格子の 4 倍）。太陽の既定は 2026-12-01T12:00Z（高度 1.8°）。Python の YAML は未変更。
+  環境の許可ホストに pgda.gsfc.nasa.gov を追加済み。
   一様な傾斜（tilt）は廃止（2026-11 ユーザー判断「傾斜はなくして DEM だけ」）: 全プリセット slopeDeg 0、路面モデルタブから削除、
   `terrain.tilt` は設定ファイル専用（DEM 使用時は無視）。
 - 画角: `World.setFov(kind, name, params)`（パターン / 内部行列を作り直す、値はクランプ）。UI の変更は `sensorOverrides` で

@@ -255,7 +255,7 @@ worker.onmessage = (ev) => {
     setupSensorTab(m.sensors);
     setupModelsTab();
     drawObjects(m.objects);
-    if (m.dem) $('build-info').textContent += `　ベース地形: LOLA 実 DEM（${m.dem.res} m 格子、原点の斜度 ${m.dem.stats.slope_at_site_deg.toFixed(1)}°）`;
+    if (m.dem) $('build-info').textContent += `　ベース地形: LOLA 実 DEM（Site01、${m.dem.res} m 格子、原点の斜度 ${m.dem.stats.slope_at_site_deg.toFixed(1)}°）`;
     if (m.outsideObjects.length) {
       $('build-info').textContent += `　※ ${m.outsideObjects.join(', ')} は地形の範囲外（下に地面がありません。範囲 512 m で地面の上に立ちます）`;
     }
@@ -353,8 +353,8 @@ $('globe-btn').addEventListener('click', () => {
 // Each entry switches one model on / off in the scenario. Terrain entries rebuild the terrain; rover
 // entries are sent to the worker and apply immediately. Kept across rebuilds, presets and config files.
 const MODELS = [
-  { key: 'dem', group: 'terrain', label: '実 DEM のベース地形（LOLA のレーザ高度計データ、10 m 格子）',
-    src: 'LRO LOLA RDR のレーザ測距点（NASA GSFC LOLA チーム, Smith et al. (2010) Space Sci. Rev. 150）。USGS Astrogeology が AWS Open Data で公開する COPC タイル（s3://astrogeo-ard/moon/lro/lola/）から scripts/fetch_lola_dem.py で格子化。使うとフラクタル起伏とクレーターは 40 m 未満だけを上乗せ',
+  { key: 'dem', group: 'terrain', label: '実 DEM のベース地形（LOLA 5 m 格子、Site01 Connecting ridge）',
+    src: 'LOLA の南極着陸候補地 5 m/px DEM（Site01）: Barker et al. (2021) Planet. Space Sci. 203, 105119、NASA GSFC PGDA（pgda.gsfc.nasa.gov/products/78）。scripts/fetch_lola_dem.py で地点まわり ±640 m を局所座標に変換。5 m 画素の約 9 割は測線間の補間なので、フラクタル起伏とクレーターは 40 m 未満だけを上乗せ（40 m はサンプル値）',
     available: (s) => !!(s.terrain.dem && s.terrain.dem.url), na: 'このプリセットの地点には DEM ファイルを同梱していません（南極プリセットのみ）',
     get: (s) => !!(s.terrain.dem && s.terrain.dem.enabled && s.terrain.dem.url), set: (s, v) => { if (s.terrain.dem && s.terrain.dem.url) s.terrain.dem.enabled = v; } },
   { key: 'fractal', group: 'terrain', label: 'フラクタル起伏（細かな凹凸・うねり）', src: 'RMS 斜度の定義: Rosenburg et al. (2011) JGR 116, E02001。Hurst 指数・RMS 斜度の値はサンプル値', get: (s) => s.terrain.fractal.enabled, set: (s, v) => { s.terrain.fractal.enabled = v; } },

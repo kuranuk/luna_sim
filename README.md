@@ -140,20 +140,25 @@ CPU の式と 0.6 % 以内で一致します。歪みなしのピンホール、
 
 ### 実 DEM のベース地形（LOLA）
 
-南極プリセット（南緯 89.5°、経度 0°）のベース地形は実測データです。LRO のレーザ高度計 LOLA の測距点
-（USGS Astrogeology が AWS Open Data で公開、パブリックドメイン）を地点の周囲 ±640 m だけ取り出し、10 m 格子にした
-ファイル `web/assets/dem/lola_89.5S_0E.{json,f32}`（66 KB）を同梱しています。ブラウザは起動時にこれを読み、
+南極プリセットの地点は、実在の着陸候補地 **Site01「Connecting ridge」**（南緯 89.453°、東経 222.88°、論文の ROI 4 の中心、
+基準球から約 +1956 m の尾根上）です。ベース地形は NASA GSFC PGDA の LOLA 5 m/px DEM
+（Barker et al. 2021, Planet. Space Sci. 203, 105119, https://pgda.gsfc.nasa.gov/products/78）で、地点の周囲 ±640 m を
+局所座標に変換したファイル `web/assets/dem/lola_site01.{json,f32}`（264 KB）を同梱しています。ブラウザは起動時にこれを読み、
 その上に 40 m 未満の細かな起伏・クレーター・岩（手続き生成）を重ねます。「路面モデル」タブの
 「実 DEM のベース地形」で切り替えられます（オフにすると手続き生成だけの平らな土台）。
 一様な「地域の傾斜」モデルは廃止しました（斜面は DEM だけから。設定ファイルの `terrain.tilt` は DEM を使わないときだけ有効）。
 
-- 実地形ではこの地点は西へ約 8° 下る斜面です。
-- LOLA の測距点の間隔はこの付近で約 15 m なので、それより細かい形は実測ではなくモデルです。
-- 同梱範囲（±640 m）の外の遠くの山や地平線は再現していません。
-- 別の地点の DEM を作る（ネット接続と追加パッケージが必要、シミュレータの実行時には不要）:
+- 出発点の斜度は約 1.4°、±640 m 内の斜度は中央値 7°・最大 29° です。
+- 5 m 画素の約 9 割は LOLA の測線の間の補間です（論文による）。細かい形は実測ではなくモデルで、境目の 40 m はサンプル値
+  （`terrain.dem.detailBelow`）。
+- 同梱範囲（±640 m）の外の遠くの山や地平線は再現していません。太陽の既定日時は 2026-12-01 12:00 UTC（高度 約 1.8°）。
+- Python 版の南極シナリオ（YAML）は従来の地点・手続き地形のままです。
+- 別の地点の DEM を作る（開発時だけ。シミュレータの実行時には不要）:
 
 ```bash
-pip install "laspy[lazrs]" requests
+# PGDA の 5 m DEM（GeoTIFF を手でダウンロード、tifffile が必要）
+python scripts/fetch_lola_dem.py --geotiff Site01_final_adj_5mpp_surf.tif --lat -89.453 --lon 222.88 --res 5 --name lola_site01
+# 任意の地点: AWS Open Data の LOLA 測距点から格子化（laspy[lazrs] と requests が必要）
 python scripts/fetch_lola_dem.py --lat -89.5 --lon 0 --name lola_89.5S_0E
 ```
 
