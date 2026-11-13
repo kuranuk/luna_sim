@@ -141,4 +141,6 @@
 | DEM に重ねる細部の上限 `terrain.dem.detailBelow` | 40 m 未満（波長・クレーター直径） | **サンプル値**（測線間隔より細かい形は実測に無いため） | TODO(ref): LOLA の実効分解能に基づく値 |
 | 別経路: 任意地点の格子化 | LOLA RDR 測距点（AWS Open Data `s3://astrogeo-ard/moon/lro/lola/`）を 10 m 格子化（`scripts/fetch_lola_dem.py`） | 実データ | Smith et al. (2010) Space Sci. Rev. 150, 209–241; USGS Astrogeology Analysis Ready Data |
 
+Python 版: `configs/dem/lola_site01_5mpp.npy`（同じ GeoTIFF の ±1.6 km 切り出し）。`terrain.dem.detail_below_m` = 40 m（サンプル値、TODO(ref)）。
+
 限界: 同梱範囲の外の地形（遠くの山による影）は含まない。

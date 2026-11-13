@@ -152,12 +152,15 @@ CPU の式と 0.6 % 以内で一致します。歪みなしのピンホール、
 - 5 m 画素の約 9 割は LOLA の測線の間の補間です（論文による）。細かい形は実測ではなくモデルで、境目の 40 m はサンプル値
   （`terrain.dem.detailBelow`）。
 - 同梱範囲（±640 m）の外の遠くの山や地平線は再現していません。太陽の既定日時は 2026-12-01 12:00 UTC（高度 約 1.8°）。
-- Python 版の南極シナリオ（YAML）は従来の地点・手続き地形のままです。
+- Python 版の南極シナリオ（`configs/south_pole_lowsun*.yaml`）も同じ地点・同じ DEM です（`configs/dem/lola_site01_5mpp.npy`、
+  ポーラーステレオのまま ±1.6 km を切り出したもの）。`terrain.dem.detail_below_m: 40` で、フラクタルは 40 m より長い波長を除き、
+  クレーターは 40 m 未満だけ生成します。mare_plain・crater_field も地点・太陽・路面モデルをブラウザ版のプリセットに合わせてあり、
+  `tests/test_web_sim.py` が両方の一致を検査します（格子サイズと最小のクレーター・岩だけは格子に合わせて別）。
 - 別の地点の DEM を作る（開発時だけ。シミュレータの実行時には不要）:
 
 ```bash
 # PGDA の 5 m DEM（GeoTIFF を手でダウンロード、tifffile が必要）
-python scripts/fetch_lola_dem.py --geotiff Site01_final_adj_5mpp_surf.tif --lat -89.453 --lon 222.88 --res 5 --name lola_site01
+python scripts/fetch_lola_dem.py --geotiff Site01_final_adj_5mpp_surf.tif --lat -89.453 --lon 222.88 --res 5 --name lola_site01 --npy configs/dem/lola_site01_5mpp.npy   # --npy は Python 版用
 # 任意の地点: AWS Open Data の LOLA 測距点から格子化（laspy[lazrs] と requests が必要）
 python scripts/fetch_lola_dem.py --lat -89.5 --lon 0 --name lola_89.5S_0E
 ```

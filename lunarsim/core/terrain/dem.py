@@ -251,8 +251,14 @@ class BaseSurface:
 
     @property
     def highpass_k(self) -> float | None:
-        """Frequency [cycles/m] below which the fractal is suppressed (DEM Nyquist)."""
-        return self.dem.nyquist_k if self.dem is not None else None
+        """Frequency [cycles/m] below which the fractal is suppressed.
+
+        DEM Nyquist, or ``1 / dem.detail_below_m`` when that is set.
+        """
+        if self.dem is None:
+            return None
+        lim = self.dem.cfg.detail_below_m
+        return 1.0 / lim if lim is not None else self.dem.nyquist_k
 
     def grid(self, x: FloatArray, y: FloatArray) -> FloatArray:
         """Base height on the grid ``x`` (columns) × ``y`` (rows) [m], shape ``(ny, nx)``."""

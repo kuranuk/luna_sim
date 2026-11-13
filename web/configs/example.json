@@ -4,7 +4,7 @@
   "description": "Example: wider navcam and SPAD field of view, a mast camera, rear camera off, 32-line LiDAR removed.",
   "seed": 2026,
   "terrain": { "n": 1024, "res": 0.2 },
-  "sun": { "mode": "astronomical", "utc": "2026-12-20T00:00:00Z" },
+  "sun": { "mode": "astronomical", "utc": "2026-12-01T12:00:00Z" },
   "cameras": [
     { "name": "navcam", "hfovDeg": 90 },
     { "name": "side_left" },

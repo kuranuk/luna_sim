@@ -322,6 +322,12 @@ class DemConfig(_Model):
     origin_x: float | None = None
     origin_y: float | None = None
     rows_north_up: bool = True
+    # Size [m] below which synthetic detail is added on top of the DEM: the fractal is
+    # high-passed at this wavelength (instead of 2 DEM pixels) and craters are only generated
+    # below this diameter (larger ones are in the DEM). None = 2 pixels, all craters (as before).
+    # Gridded LOLA DEMs are mostly interpolated between tracks, so their real resolution is
+    # coarser than the pixel; 40 m in the south-pole scenarios is a sample value. TODO(ref)
+    detail_below_m: PositiveFloat | None = None
 
     @model_validator(mode="after")
     def _check(self) -> DemConfig:
@@ -362,6 +368,20 @@ class TerrainConfig(_Model):
         nx = round(self.size_x_m / self.resolution_m) + 1
         ny = round(self.size_y_m / self.resolution_m) + 1
         return ny, nx
+
+    def generation_config(self) -> TerrainConfig:
+        """Config used by the generators: with ``dem.detail_below_m`` craters are capped there."""
+        lim = self.dem.detail_below_m if self.dem.enabled else None
+        sfd = self.craters.sfd
+        if lim is None or not self.craters.enabled or sfd.d_max_m <= lim:
+            return self
+        if lim <= sfd.d_min_m:
+            craters = self.craters.model_copy(update={"enabled": False})
+        else:
+            craters = self.craters.model_copy(
+                update={"sfd": sfd.model_copy(update={"d_max_m": lim})}
+            )
+        return self.model_copy(update={"craters": craters})
 
     @model_validator(mode="after")
     def _check(self) -> TerrainConfig:

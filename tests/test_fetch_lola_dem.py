@@ -84,3 +84,35 @@ def test_shipped_dem_matches_its_metadata() -> None:
     assert "LOLA" in meta["source"] and "Barker" in meta["source"]
     # the ridge top is about 1.96 km above the reference sphere (Barker et al. 2021, Site01)
     assert 1900.0 < meta["height_of_site_above_reference_sphere_m"] < 2000.0
+
+
+def test_python_south_pole_scenario_uses_the_same_site01_dem_as_the_browser() -> None:
+    """configs/south_pole_lowsun*.yaml (Python) and web/assets/dem/lola_site01 (browser) agree."""
+    from lunarsim.config.load import load_config
+    from lunarsim.core.terrain.dem import BaseSurface
+
+    meta = json.loads((ROOT / "web/assets/dem/lola_site01.json").read_text())
+    web = np.fromfile(ROOT / "web/assets/dem" / meta["data"], dtype="<f4")
+    web = web.reshape(meta["n"], meta["n"])
+    for name in ("south_pole_lowsun", "south_pole_lowsun_stereo", "south_pole_lowsun_surround"):
+        cfg = load_config(ROOT / "configs" / f"{name}.yaml")
+        assert cfg.site.latitude_deg == meta["site"]["lat"]
+        assert cfg.site.longitude_deg == meta["site"]["lon"]
+        assert cfg.terrain.tilt.slope_deg == 0.0  # the slope comes from the DEM only
+        assert cfg.terrain.dem.enabled and cfg.terrain.dem.detail_below_m == 40.0
+        gen = cfg.terrain.generation_config()
+        assert gen.craters.sfd.d_max_m == 40.0 and cfg.terrain.craters.sfd.d_max_m > 40.0
+    base = BaseSurface.from_config(cfg.terrain, cfg.site)
+    assert base is not None and base.highpass_k == 1.0 / 40.0
+    xs = np.array([-600.0, -300.0, 0.0, 250.0, 600.0])
+    g = base.grid(xs, xs)
+    xx, yy = np.meshgrid(xs, xs)
+    # the browser file is in true ENU (includes the curvature drop), the Python base is a height
+    # above the sphere on the tangent plane (curvature is the separate terrain.curvature option)
+    g = g - (xx**2 + yy**2) / (2.0 * meta["reference_radius_m"])
+    idx = ((xs - meta["x0"]) / meta["res"]).astype(int)
+    # two resamplings of the same 5 m pixels (cubic spline vs linear on the rotated grid): dm level
+    assert np.abs(g - web[np.ix_(idx, idx)]).max() < 0.25
+    # the corners of the 2 km world (rotated ~43 deg against the map axes) are inside the crop
+    half = 0.5 * cfg.terrain.size_x_m
+    base.grid(np.array([-half, half]), np.array([-half, half]))

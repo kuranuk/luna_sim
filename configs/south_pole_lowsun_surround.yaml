@@ -7,11 +7,12 @@
 name: south_pole_lowsun_surround
 seed: 2026
 site:
-  latitude_deg: -89.5
-  longitude_deg: 0.0
+  # Site01 "Connecting ridge", centre of ROI 4 of Barker et al. (2021); same as the browser preset
+  latitude_deg: -89.453
+  longitude_deg: 222.88
 sun:
   mode: astronomical
-  utc: "2026-12-20T00:00:00Z"   # elevation ≈ 1.6°, azimuth ≈ 49° (analytic ≈ SPICE within 0.07°)
+  utc: "2026-12-01T12:00:00Z"   # elevation ≈ 1.8°, azimuth ≈ 51° (analytic model)
 terrain:
   size_x_m: 2000.0
   size_y_m: 2000.0
@@ -21,9 +22,18 @@ terrain:
     rms_slope_deg: 6.0
     baseline_m: 1.0
     rolloff_wavelength_m: 400.0
-  tilt:
-    slope_deg: 3.0
-    downhill_azimuth_deg: 50.0
+  # Base shape = real data: LOLA 5 m/pix DEM of Site01 (Barker et al. 2021, Planet. Space Sci. 203,
+  # 105119; NASA GSFC PGDA https://pgda.gsfc.nasa.gov/products/78), cropped to +-1.6 km around the
+  # site by scripts/fetch_lola_dem.py --npy. No synthetic regional tilt. Fractal relief and craters
+  # are added below 40 m only (sample value: ~90 % of the 5 m pixels are interpolated).
+  dem:
+    enabled: true
+    path: dem/lola_site01_5mpp.npy
+    projection: polar_stereographic
+    pixel_size: 5.0
+    origin_x: -12887.5
+    origin_y: -10552.5
+    detail_below_m: 40.0
   craters:
     enabled: true
     sfd: {mode: equilibrium, equilibrium_fraction: 0.02, d_min_m: 0.3, d_max_m: 300.0}

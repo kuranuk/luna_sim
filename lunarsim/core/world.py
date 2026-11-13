@@ -89,14 +89,13 @@ class World:
         self.rngs = RngFactory(config.seed)
         self._two_layer: TwoLayerTerrain | None = None
         self.base_surface = BaseSurface.from_config(config.terrain, config.site)
+        tcfg = config.terrain.generation_config()  # crater cap of dem.detail_below_m
         if config.terrain.near.enabled:
             self._two_layer = TwoLayerTerrain(
-                config.terrain, self.rngs, workers=workers, base=self.base_surface
+                tcfg, self.rngs, workers=workers, base=self.base_surface
             )
         else:
-            self._single = build_terrain(
-                config.terrain, self.rngs, workers=workers, base=self.base_surface
-            )
+            self._single = build_terrain(tcfg, self.rngs, workers=workers, base=self.base_surface)
         self._build_caster()
         self.sun: SunState = self._sun_from_config()
         self.cameras: dict[str, tuple[CameraConfig, CameraModel]] = {

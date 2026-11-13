@@ -1,7 +1,11 @@
 # Mare-like plain with an equilibrium crater population and rocks.
 # Sample/literature values: see lunarsim/config/schema.py and docs/references.md.
+# Same site, sun and surface models as the browser preset of the same name (web/js/sim/scenarios.js;
+# checked by tests/test_web_sim.py). Grid size and the smallest crater / rock follow the grid.
 name: crater_field
 seed: 11
+site: {latitude_deg: 0.0, longitude_deg: 0.0}
+sun: {mode: manual, azimuth_deg: 100.0, elevation_deg: 12.0}
 terrain:
   size_x_m: 400.0
   size_y_m: 400.0
@@ -15,9 +19,9 @@ terrain:
     enabled: true
     sfd:
       mode: equilibrium
-      equilibrium_fraction: 0.02
+      equilibrium_fraction: 0.05
       d_min_m: 1.0
-      d_max_m: 120.0
+      d_max_m: 80.0
   rocks:
     enabled: true
     k: 0.02
@@ -26,4 +30,4 @@ terrain:
     ejecta:
       enabled: true
       k: 0.15
-      min_crater_diameter_m: 30.0
+      min_crater_diameter_m: 15.0

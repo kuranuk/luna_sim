@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import shutil
 import subprocess
 from pathlib import Path
@@ -139,3 +140,67 @@ def test_web_terrain_model_matches_python_and_references() -> None:
     assert abs(fr["mean"]) < 1e-9
     assert d["tilt"]["measuredDeg"] == pytest.approx(d["tilt"]["slopeDeg"], abs=1e-9)
     assert abs(d["tilt"]["across"]) < 1e-9
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="Node.js not installed")
+def test_browser_presets_match_python_scenarios() -> None:
+    """Presets of the same name describe the same place, sun and surface models in both versions.
+
+    Grid size / resolution and the smallest crater and rock differ on purpose (they follow the
+    grid); everything physical is compared.
+    """
+    from lunarsim.config.load import load_config
+
+    js = "import('./web/js/sim/scenarios.js').then((m) => console.log(JSON.stringify(m.SCENARIOS)))"
+    r = subprocess.run(["node", "-e", js], capture_output=True, text=True, timeout=60, cwd=ROOT)
+    assert r.returncode == 0, r.stderr
+    presets = json.loads(r.stdout)
+    assert set(presets) == {"south_pole_lowsun", "mare_plain", "crater_field"}
+    for name, web in presets.items():
+        cfg = load_config(ROOT / "configs" / f"{name}.yaml")
+        t, wt = cfg.terrain, web["terrain"]
+        assert cfg.seed == web["seed"], name
+        assert (cfg.site.latitude_deg, cfg.site.longitude_deg) == (
+            web["site"]["lat"],
+            web["site"]["lon"],
+        ), name
+        assert cfg.sun.mode == web["sun"]["mode"], name
+        if cfg.sun.mode == "astronomical":
+            assert cfg.sun.utc == web["sun"]["utc"], name
+        else:
+            assert cfg.sun.azimuth_deg == web["sun"]["azDeg"], name
+            assert cfg.sun.elevation_deg == web["sun"]["elDeg"], name
+        f, wf = t.fractal, wt["fractal"]
+        assert (f.enabled, f.hurst, f.rms_slope_deg, f.baseline_m, f.rolloff_wavelength_m) == (
+            wf["enabled"],
+            wf["hurst"],
+            wf["rmsSlopeDeg"],
+            wf["baseline"],
+            wf["rolloffWavelength"],
+        ), name
+        assert t.tilt.slope_deg == wt["tilt"]["slopeDeg"] == 0.0, name
+        wd = wt.get("dem") or {"enabled": False}
+        assert t.dem.enabled == wd["enabled"], name
+        if t.dem.enabled:
+            assert t.dem.detail_below_m == wd["detailBelow"], name
+        c, wc = t.craters, wt["craters"]
+        assert c.enabled == wc["enabled"], name
+        assert c.sfd.equilibrium_fraction == wc["equilibriumFraction"], name
+        cap = t.dem.detail_below_m if t.dem.enabled else None
+        if cap is None:  # with a DEM both versions cap the craters at detail_below
+            assert c.sfd.d_max_m == wc["dMax"], name
+        rk, wr = t.rocks, wt["rocks"]
+        assert (rk.enabled, rk.k, rk.d_max_m) == (wr["enabled"], wr["k"], wr["dMax"]), name
+        assert rk.ejecta.enabled == wr["ejecta"], name
+        if rk.ejecta.enabled:
+            assert (rk.ejecta.k, rk.ejecta.min_crater_diameter_m) == (
+                wr["ejectaK"],
+                wr["ejectaMinCraterD"],
+            ), name
+        rv, wv = cfg.rover, web["rover"]
+        assert (rv.wheelbase_m, rv.track_m, rv.origin_height_m, rv.max_speed_m_s) == (
+            wv["wheelbase"],
+            wv["track"],
+            wv["originHeight"],
+            wv["maxSpeed"],
+        ), name

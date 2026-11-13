@@ -1,6 +1,10 @@
 # Generic gently rolling mare-like plain (sample values, see TODO(ref) in schema).
+# Same site, sun and surface models as the browser preset of the same name (web/js/sim/scenarios.js;
+# checked by tests/test_web_sim.py). Grid size and the smallest crater / rock follow the grid.
 name: mare_plain
 seed: 42
+site: {latitude_deg: 0.0, longitude_deg: 0.0}
+sun: {mode: manual, azimuth_deg: 135.0, elevation_deg: 30.0}
 terrain:
   size_x_m: 400.0
   size_y_m: 400.0
@@ -10,3 +14,12 @@ terrain:
     rms_slope_deg: 4.0
     baseline_m: 1.0
     rolloff_wavelength_m: 200.0
+  craters:
+    enabled: true
+    sfd: {mode: equilibrium, equilibrium_fraction: 0.02, d_min_m: 0.5, d_max_m: 60.0}
+  rocks:
+    enabled: true
+    k: 0.02
+    d_min_m: 0.5
+    d_max_m: 3.0
+    ejecta: {enabled: false}

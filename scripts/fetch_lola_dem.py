@@ -173,6 +173,38 @@ def geotiff_points(
     return enu[keep], f"{sx:g} m/pix"
 
 
+def crop_npy(path: Path, lat_deg: float, lon_deg: float, half_m: float, out: Path) -> str:
+    """Crop the GeoTIFF around the site to a float32 ``.npy`` for the Python simulator.
+
+    Returns the ``terrain.dem`` YAML fields (map geometry of the crop; no tifffile at run time).
+    """
+    import tifffile  # optional dependency
+
+    with tifffile.TiffFile(path) as tf:
+        page = tf.pages[0]
+        tags = {t.code: t.value for t in page.tags.values()}
+        z = np.asarray(page.asarray(), dtype=np.float32)
+    sx, sy = tags[33550][:2]
+    tie = tags[33922]
+    pole = -1 if -90.0 in tags.get(34736, ()) else 1
+    x0, y0 = tie[3] - tie[0] * sx, tie[4] + tie[1] * sy
+    cx, cy = stereo_xy(lat_deg, lon_deg, pole)
+    j0, j1 = int((cx - half_m - x0) / sx), int((cx + half_m - x0) / sx) + 1
+    i0, i1 = int((y0 - cy - half_m) / sy), int((y0 - cy + half_m) / sy) + 1
+    if j0 < 0 or i0 < 0 or j1 > z.shape[1] or i1 > z.shape[0]:
+        raise ValueError(f"the window around the site leaves the raster ({path.name})")
+    crop = z[i0:i1, j0:j1]
+    if not np.isfinite(crop).all():
+        raise ValueError("the crop contains no-data pixels")
+    out.parent.mkdir(parents=True, exist_ok=True)
+    np.save(out, crop, allow_pickle=False)
+    return (
+        f"path: {out.name}, projection: polar_stereographic, pixel_size: {sx:g}, "
+        f"origin_x: {x0 + (j0 + 0.5) * sx:g}, origin_y: {y0 - (i0 + 0.5) * sy:g}  "
+        f"# {crop.shape[0]} x {crop.shape[1]} px"
+    )
+
+
 def write_dem(out_dir: Path, name: str, lat: float, lon: float, ax: FloatArray, z: FloatArray,
               stats: dict[str, float], tiles: list[str], source: str | None = None,
               processing: str | None = None) -> None:  # fmt: skip
@@ -213,7 +245,11 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--out", type=Path, default=ROOT / "web" / "assets" / "dem")
     ap.add_argument("--geotiff", type=Path, help="polar stereographic DEM instead of the shots")
     ap.add_argument("--source", help="source text stored in the file (with --geotiff)")
+    ap.add_argument("--npy", type=Path, help="also write a polar-stereographic crop (.npy) here")
+    ap.add_argument("--npy-half", type=float, default=1600.0, help="half size of the crop [m]")
     args = ap.parse_args(argv)
+    if args.geotiff and args.npy:
+        print(crop_npy(args.geotiff, args.lat, args.lon, args.npy_half, args.npy))
     if args.geotiff:
         enu, scale = geotiff_points(args.geotiff, args.lat, args.lon, args.half)
         ax, z, stats = grid_dem(enu, args.half, args.res, smooth_cells=0.0)
